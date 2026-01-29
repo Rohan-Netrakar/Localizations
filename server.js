@@ -1,7 +1,11 @@
-const express = require("express");
-const path = require("path");
+import express from "express";
+import path from "path";
+import { fileURLToPath } from "url";
 
 const app = express();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // View engine
 app.set("view engine", "ejs");
@@ -14,7 +18,7 @@ app.use(express.static(path.join(__dirname, "public")));
 
 // Load all application routes and mount them at the root URL ("/").
 // Any request like "/" or "/localizations" is handled inside ./routes/index.js
-const indexRoutes = require("./routes/index");
+import indexRoutes from "./routes/index.js";
 app.use("/", indexRoutes);
 
 
