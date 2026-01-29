@@ -1,28 +1,56 @@
+// server.js
+// Main entry point of the Indoor Localization application
+// Responsible for initializing Express, middleware, routes, and server startup
+
 import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
 
 const app = express();
 
+// Fix for __dirname in ES modules
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// View engine
+/* -------------------------------------------------
+   Middleware Configuration
+-------------------------------------------------- */
+
+// Parse incoming JSON requests
+app.use(express.json());
+
+// Parse URL-encoded form data
+app.use(express.urlencoded({ extended: true }));
+
+/* -------------------------------------------------
+   View Engine Configuration
+-------------------------------------------------- */
+
 app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "views"));
 
-// Static files
+/* -------------------------------------------------
+   Static Files Configuration
+-------------------------------------------------- */
+
 app.use(express.static(path.join(__dirname, "public")));
 
-// Routes
+/* -------------------------------------------------
+   Route Imports
+-------------------------------------------------- */
 
-// Load all application routes and mount them at the root URL ("/").
-// Any request like "/" or "/localizations" is handled inside ./routes/index.js
-import indexRoutes from "./routes/index.js";
-app.use("/", indexRoutes);
+import uiRoutes from "./routes/index.js";
+import formApiRoutes from "./routes/FormBssid.js";
 
+// Mount routes at root
+app.use("/", uiRoutes);
+app.use("/", formApiRoutes);
+
+/* -------------------------------------------------
+   Server Startup
+-------------------------------------------------- */
 
 const PORT = 3000;
 app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+  console.log(`✅ Server running at http://localhost:${PORT}`);
 });
