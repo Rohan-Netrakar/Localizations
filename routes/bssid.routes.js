@@ -1,3 +1,17 @@
+/**
+ * File: bssid.routes.js
+ *
+ * Purpose:
+ * - Handles User ↔ Wi-Fi BSSID routes for Indoor Localization
+ *
+ * APIs:
+ * - GET  /api            → Render BSSID dashboard UI
+ * - POST /update-bssid   → Create / update user BSSID
+ * - GET  /users          → Fetch all registered users
+ *
+ * Note:
+ * - Uses in-memory storage (resets on server restart)
+ */
 import express from "express";
 
 const router = express.Router();
@@ -13,7 +27,7 @@ const users = {};
 ---------------------------- */
 
 router.get("/api", (req,res)=>{
-    res.render("BssidForm");
+    res.render("bssidDashboard");//ejs file
 });
 router.post("/update-bssid", (req, res) => {
   const { userId, bssid } = req.body;

@@ -46,8 +46,8 @@ app.get("/health", (req, res) => {
    Routes
 -------------------------------------------------- */
 
-import uiRoutes from "./routes/index.js";
-import formApiRoutes from "./routes/FormBssid.js";
+import uiRoutes from "./routes/index.js"; //landing and localizarions
+import formApiRoutes from "./routes/bssid.routes.js"; // bssidDashboard
 
 app.use("/", uiRoutes);
 app.use("/", formApiRoutes);
