@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>IndoorLocate – About the App</title>
+
+  <style>
+    * {
+      box-sizing: border-box;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    body {
+      margin: 0;
+      background: #0f172a;
+      color: #e5e7eb;
+      line-height: 1.6;
+    }
+
+    .navbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 14px 18px;
+      background: #020617;
+    }
+
+    .logo {
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    .nav-btn {
+      background: #2563eb;
+      border: none;
+      color: white;
+      padding: 8px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    .container {
+      padding: 24px 18px 40px;
+      max-width: 700px;
+      margin: auto;
+    }
+
+    h1 {
+      font-size: 26px;
+      margin-bottom: 12px;
+    }
+
+    h2 {
+      font-size: 18px;
+      margin-top: 28px;
+      margin-bottom: 8px;
+      color: #93c5fd;
+    }
+
+    p {
+      font-size: 15px;
+      color: #d1d5db;
+    }
+
+    ul {
+      padding-left: 18px;
+      font-size: 15px;
+    }
+
+    li {
+      margin-bottom: 6px;
+    }
+
+    .box {
+      background: #020617;
+      border: 1px solid #1e293b;
+      border-radius: 10px;
+      padding: 16px;
+      margin-top: 18px;
+    }
+
+    .cta {
+      display: block;
+      margin-top: 26px;
+      text-align: center;
+      background: #22c55e;
+      color: #022c22;
+      padding: 14px;
+      border-radius: 10px;
+      font-weight: 600;
+      text-decoration: none;
+    }
+
+    .note {
+      margin-top: 12px;
+      font-size: 13px;
+      color: #9ca3af;
+      text-align: center;
+    }
+
+    footer {
+      text-align: center;
+      padding: 18px;
+      font-size: 13px;
+      color: #9ca3af;
+      border-top: 1px solid #1e293b;
+      background: #020617;
+    }
+  </style>
+</head>
+
+<body>
+
+  <nav class="navbar">
+    <div class="logo">IndoorLocate</div>
+    <button class="nav-btn" onclick="window.location.href='/'">Home</button>
+  </nav>
+
+  <div class="container">
+    <h1>IndoorLocate Android App</h1>
+
+    <p>
+      IndoorLocate is a <strong>college project</strong> built for
+      <strong>learning and testing purposes only</strong>.
+      It helps identify <strong>which classroom or indoor area</strong>
+      a user is currently in.
+    </p>
+
+    <div class="box">
+      <h2>📌 What problem does this solve?</h2>
+      <p>
+        GPS does not work well inside buildings.
+        IndoorLocate uses <strong>Wi-Fi signals</strong> instead to
+        detect indoor locations like classrooms or labs.
+      </p>
+    </div>
+
+    <div class="box">
+      <h2>⚙️ How the app works (simple)</h2>
+      <ul>
+        <li>Reads the Wi-Fi network your phone is connected to</li>
+        <li>Gets the Wi-Fi <strong>BSSID</strong> (router ID)</li>
+        <li>Sends only this BSSID to the server</li>
+        <li>Server finds the mapped classroom</li>
+      </ul>
+    </div>
+
+    <div class="box">
+      <h2>🔐 Privacy & permissions</h2>
+      <p>
+        Your privacy is respected.
+        The app <strong>does not collect personal data</strong>.
+      </p>
+      <ul>
+        <li>❌ No files access</li>
+        <li>❌ No contacts</li>
+        <li>❌ No camera or microphone</li>
+      </ul>
+      <p>
+        Android requires <strong>Location permission</strong> only to
+        read Wi-Fi information.
+        No location history or identity is stored.
+      </p>
+    </div>
+
+    <a href="/download-apk" class="cta">
+      ⬇ Download Test APK
+    </a>
+
+    <div class="note">
+      Android may show “Install unknown apps”. This is normal for test APKs.
+    </div>
+  </div>
+
+  <footer>
+    Final Year Engineering Project • Indoor Location Detection System
+  </footer>
+
+</body>
+</html>

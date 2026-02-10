@@ -4,3 +4,6 @@ function goToLocalizationsgoToApp() {
 function goToBssidUpdate() {
   window.location.href = "/api";
 }
+function goToAppDetails() {
+  window.location.href = "/display";
+}
