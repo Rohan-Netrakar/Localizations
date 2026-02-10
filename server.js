@@ -1,6 +1,5 @@
 // server.js
 // Main entry point of the Indoor Localization application
-// Responsible for initializing Express, middleware, routes, and server startup
 
 import express from "express";
 import path from "path";
@@ -8,49 +7,62 @@ import { fileURLToPath } from "url";
 
 const app = express();
 
-// Fix for __dirname in ES modules
+/* -------------------------------------------------
+   Fix for __dirname in ES modules
+-------------------------------------------------- */
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 /* -------------------------------------------------
-   Middleware Configuration
+   Middleware
 -------------------------------------------------- */
 
-// Parse incoming JSON requests
 app.use(express.json());
-
-// Parse URL-encoded form data
 app.use(express.urlencoded({ extended: true }));
 
 /* -------------------------------------------------
-   View Engine Configuration
+   View Engine
 -------------------------------------------------- */
 
 app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "views"));
 
 /* -------------------------------------------------
-   Static Files Configuration
+   Static Files
 -------------------------------------------------- */
 
 app.use(express.static(path.join(__dirname, "public")));
 
 /* -------------------------------------------------
-   Route Imports
+   Health Check (Render requirement)
+-------------------------------------------------- */
+
+app.get("/health", (req, res) => {
+  res.status(200).json({ status: "ok" });
+});
+
+/* -------------------------------------------------
+   Routes
 -------------------------------------------------- */
 
 import uiRoutes from "./routes/index.js";
 import formApiRoutes from "./routes/FormBssid.js";
 
-// Mount routes at root
 app.use("/", uiRoutes);
 app.use("/", formApiRoutes);
 
 /* -------------------------------------------------
-   Server Startup
+   Server Start
 -------------------------------------------------- */
 
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
+
 app.listen(PORT, () => {
-  console.log(`✅ Server running at http://localhost:${PORT}`);
+  console.log(`✅ Server running on port ${PORT}`);
+
+  // Load keep-alive ONLY in production (Render)
+  if (process.env.NODE_ENV === "production") {
+    import("./keepAliveRender.js");
+  }
 });
