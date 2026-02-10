@@ -4,7 +4,9 @@
 import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
+import dotenv from "dotenv";
 
+dotenv.config();
 const app = express();
 
 /* -------------------------------------------------
@@ -55,6 +57,7 @@ app.use("/", formApiRoutes);
 /* -------------------------------------------------
    Server Start
 -------------------------------------------------- */
+console.log("DB:", process.env.DB_NAME);
 
 const PORT = process.env.PORT || 3000;
 
