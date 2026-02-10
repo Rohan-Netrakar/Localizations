@@ -1,39 +1,32 @@
 /**
  * File: bssid.routes.js
  *
- * Responsibility:
- * ----------------------------------------------------
- * This file defines all routes related to:
- * - Mapping Wi-Fi BSSIDs to physical rooms
- * - Registering new room ↔ BSSID associations
- * - Localizing a user/device based on detected BSSID
+ * Overview:
+ * --------------------------------------------------
+ * Defines API routes for indoor localization using
+ * Wi-Fi BSSID (Access Point MAC address).
  *
- * Database:
- * ----------------------------------------------------
- * Uses PostgreSQL with two tables:
- * 1. rooms
- *    - id (PK)
- *    - room_name (unique)
+ * Responsibilities:
+ * - Persist room ↔ BSSID mappings in PostgreSQL
+ * - Resolve a physical classroom from a detected BSSID
  *
- * 2. room_bssids
- *    - id (PK)
- *    - room_id (FK → rooms.id)
- *    - bssid (MAC address of access point)
- *    - band (2.4GHz / 5GHz / 6GHz)
- *    - ssid_name (Wi-Fi network name)
+ * Typical Flow:
+ * - Admin registers room and its Wi-Fi BSSID(s)
+ * - Client/app sends detected BSSID
+ * - Backend returns the mapped room name
  *
- * Exposed APIs:
- * ----------------------------------------------------
+ * Routes:
+ * --------------------------------------------------
  * GET  /api
- *      → Renders the BSSID Dashboard UI (Admin / Setup)
+ *      → Renders admin dashboard for BSSID setup
  *
  * POST /api/register
- *      → Registers a room and associates a BSSID with it
- *      → Used during initial setup or calibration
+ *      → Registers a room and associates a BSSID
+ *      → Used during initial setup / calibration
  *
  * POST /api/localize
- *      → Accepts a BSSID and returns the mapped room
- *      → Used during real-time localization
+ *      → Resolves room name using detected BSSID
+ *      → Used by mobile / IoT / web clients
  */
 
 import express from "express";
@@ -41,51 +34,31 @@ import pool from "../db/index.js";
 
 const router = express.Router();
 
-/* ====================================================
-   GET: Render BSSID Dashboard UI
-   ====================================================
-   Expected Use:
-   - Accessed by admin / setup personnel
-   - Used to manually register rooms and BSSIDs
-   - Renders an EJS dashboard page
-
-   Response:
-   - HTML view (bssidDashboard.ejs)
+/* ==================================================
+   GET: Render BSSID Dashboard
+   ==================================================
+   Purpose:
+   - Serves the admin UI for managing room–BSSID
+     mappings.
+   - This endpoint only renders the EJS view and
+     does not perform any database operations.
 */
 router.get("/api", (req, res) => {
-  res.render("bssidDashboard");
+  res.render("bssidDashboard"); // EJS admin dashboard
 });
 
-/* ====================================================
+/* ==================================================
    POST: Register Room + BSSID
-   ====================================================
+   ==================================================
    Purpose:
-   - Stores a mapping between a physical room and a Wi-Fi
-     access point (BSSID)
-   - Ensures room exists before linking BSSID
-
-   Expected Request Body (JSON / form-data):
-   {
-     room_name: "Lab A",
-     bssid: "AA:BB:CC:DD:EE:FF",
-     band: "5GHz",
-     ssid_name: "Campus_WiFi"
-   }
-
-   Behavior:
-   1. Validate required fields
-   2. Check if room already exists
-   3. Create room if not present
-   4. Insert BSSID mapping
-
-   Response:
-   - success: true/false
-   - message: status information
+   - Creates a new room if it does not exist
+   - Associates a Wi-Fi BSSID with that room
+   - Prevents duplicate BSSID entries
 */
 router.post("/api/register", async (req, res) => {
   const { room_name, bssid, band, ssid_name } = req.body;
 
-  // Basic input validation
+  /* Validate mandatory inputs */
   if (!room_name || !bssid) {
     return res.status(400).json({
       success: false,
@@ -94,76 +67,74 @@ router.post("/api/register", async (req, res) => {
   }
 
   try {
-    /* -----------------------------------------------
-       Step 1: Check if the room already exists
-    ------------------------------------------------ */
-    let roomResult = await pool.query(
+    /* ------------------------------------------------
+       Step 1: Check whether the room already exists
+       ------------------------------------------------ */
+    const roomCheck = await pool.query(
       "SELECT id FROM rooms WHERE room_name = $1",
       [room_name]
     );
 
     let roomId;
 
-    /* -----------------------------------------------
+    /* ------------------------------------------------
        Step 2: Create room if it does not exist
-    ------------------------------------------------ */
-    if (roomResult.rows.length === 0) {
-      const newRoom = await pool.query(
+       ------------------------------------------------ */
+    if (roomCheck.rows.length === 0) {
+      const roomInsert = await pool.query(
         "INSERT INTO rooms (room_name) VALUES ($1) RETURNING id",
         [room_name]
       );
-      roomId = newRoom.rows[0].id;
+      roomId = roomInsert.rows[0].id;
     } else {
-      roomId = roomResult.rows[0].id;
+      roomId = roomCheck.rows[0].id;
     }
 
-    /* -----------------------------------------------
+    /* ------------------------------------------------
        Step 3: Insert BSSID mapping for the room
-    ------------------------------------------------ */
+       - band and ssid_name are optional metadata
+       ------------------------------------------------ */
     await pool.query(
       `INSERT INTO room_bssids (room_id, bssid, band, ssid_name)
        VALUES ($1, $2, $3, $4)`,
-      [roomId, bssid, band, ssid_name]
+      [roomId, bssid, band || null, ssid_name || null]
     );
 
-    res.json({
+    return res.json({
       success: true,
       message: "Room and BSSID stored successfully"
     });
 
   } catch (err) {
-    console.error("Error registering BSSID:", err);
-    res.status(500).json({
+    console.error("DB ERROR:", err.message);
+
+    /* Handle duplicate BSSID (unique constraint) */
+    if (err.code === "23505") {
+      return res.status(409).json({
+        success: false,
+        message: "BSSID already exists"
+      });
+    }
+
+    return res.status(500).json({
       success: false,
-      message: "Database error"
+      message: "Internal server error"
     });
   }
 });
 
-/* ====================================================
-   POST: Localize User / Device
-   ====================================================
+/* ==================================================
+   POST: Localize Room using BSSID
+   ==================================================
    Purpose:
-   - Determines the physical room based on detected BSSID
-   - Used by mobile apps, IoT devices, or web clients
-
-   Expected Request Body:
-   {
-     bssid: "AA:BB:CC:DD:EE:FF"
-   }
-
-   Behavior:
-   - Searches for BSSID in room_bssids table
-   - Joins with rooms table to get room name
-
-   Response:
-   - found: true  → room name returned
-   - found: false → unknown location
+   - Determines the physical room based on a
+     detected Wi-Fi BSSID.
+   - Used during real-time indoor localization.
 */
 router.post("/api/localize", async (req, res) => {
   const { bssid } = req.body;
 
-  // Validate input
+  /* Validate input */
   if (!bssid) {
     return res.status(400).json({
       success: false,
@@ -172,6 +143,7 @@ router.post("/api/localize", async (req, res) => {
   }
 
   try {
+    /* Lookup room associated with the given BSSID */
     const result = await pool.query(
       `SELECT r.room_name
        FROM room_bssids rb
@@ -180,25 +152,26 @@ router.post("/api/localize", async (req, res) => {
       [bssid]
     );
 
-    // No mapping found → unknown location
+    /* No mapping found */
     if (result.rows.length === 0) {
       return res.json({
         found: false,
-        message: "Unknown location"
+        message: "Room not found"
       });
     }
 
-    // Location successfully resolved
-    res.json({
+    /* Successful localization */
+    return res.json({
       found: true,
       room: result.rows[0].room_name
     });
 
   } catch (err) {
-    console.error("Localization error:", err);
-    res.status(500).json({
+    console.error("DB ERROR:", err.message);
+
+    return res.status(500).json({
       success: false,
-      message: "Database error"
+      message: "Internal server error"
     });
   }
 });

@@ -1,6 +1,6 @@
 /**
  * File: db/index.js
- * Purpose: PostgreSQL connection pool using environment variables
+ * Purpose: PostgreSQL connection pool
  */
 
 import pkg from "pg";
@@ -16,6 +16,11 @@ const pool = new Pool({
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
   port: process.env.DB_PORT,
+
+  // 🔑 REQUIRED for Render / cloud PostgreSQL
+  ssl: {
+    rejectUnauthorized: false
+  }
 });
 
 export default pool;
