@@ -175,5 +175,100 @@ router.post("/api/localize", async (req, res) => {
     });
   }
 });
+/* ==================================================
+   POST: Update User Location
+   ==================================================
+   Purpose:
+   - Receives userId + bssid from the mobile app
+   - Resolves the room from the BSSID
+   - Upserts the user's current location
+*/
+router.post("/api/update-location", async (req, res) => {
+  const { user_id, bssid } = req.body;
 
+  if (!user_id || !bssid) {
+    return res.status(400).json({
+      success: false,
+      message: "user_id and bssid are required"
+    });
+  }
+
+  try {
+    /* Step 1: Resolve room from BSSID */
+    const roomResult = await pool.query(
+      `SELECT rb.room_id, r.room_name
+       FROM room_bssids rb
+       JOIN rooms r ON rb.room_id = r.id
+       WHERE rb.bssid = $1`,
+      [bssid]
+    );
+
+    if (roomResult.rows.length === 0) {
+      return res.json({
+        success: false,
+        message: "No room mapped for this BSSID"
+      });
+    }
+
+    const { room_id, room_name } = roomResult.rows[0];
+
+    /* Step 2: Upsert user location */
+    await pool.query(
+      `INSERT INTO user_locations (user_id, room_id, last_seen)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (user_id)
+       DO UPDATE SET room_id = $2, last_seen = NOW()`,
+      [user_id, room_id]
+    );
+
+    return res.json({
+      success: true,
+      message: "Location updated",
+      room: room_name
+    });
+
+  } catch (err) {
+    console.error("DB ERROR:", err.message);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error"
+    });
+  }
+});
+
+/* ==================================================
+   GET: Get All User Locations
+   ==================================================
+   Purpose:
+   - Returns all users and their current room
+   - Used by the website to display real-time locations
+*/
+router.get("/api/all-locations", async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT 
+         ul.user_id,
+         r.room_name,
+         r.floor,
+         r.building,
+         ul.last_seen
+       FROM user_locations ul
+       JOIN rooms r ON ul.room_id = r.id
+       ORDER BY ul.last_seen DESC`
+    );
+
+    return res.json({
+      success: true,
+      count: result.rows.length,
+      users: result.rows
+    });
+
+  } catch (err) {
+    console.error("DB ERROR:", err.message);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error"
+    });
+  }
+});
 export default router;

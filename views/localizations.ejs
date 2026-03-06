@@ -1,11 +1,631 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Localization Engine</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Live Locations – IndoorLocate</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --bg: #060a10;
+      --surface: #0d1520;
+      --border: #1a2740;
+      --accent: #00e5ff;
+      --accent2: #00ff9d;
+      --danger: #ff4d6d;
+      --text: #e8f0fe;
+      --muted: #4a6080;
+      --card-bg: #0a1628;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Syne', sans-serif;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* Animated grid background */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(0,229,255,0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,229,255,0.03) 1px, transparent 1px);
+      background-size: 40px 40px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* Glow orb */
+    body::after {
+      content: '';
+      position: fixed;
+      top: -200px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 600px;
+      height: 600px;
+      background: radial-gradient(circle, rgba(0,229,255,0.06) 0%, transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* Navbar */
+    .navbar {
+      position: relative;
+      z-index: 10;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 20px 40px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(6,10,16,0.8);
+      backdrop-filter: blur(12px);
+    }
+
+    .logo {
+      font-size: 1.3rem;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      color: var(--accent);
+    }
+
+    .nav-right {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .nav-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 8px 18px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-family: 'Syne', sans-serif;
+      font-size: 0.85rem;
+      transition: all 0.2s;
+    }
+
+    .nav-btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    /* Status pill */
+    .status-pill {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-family: 'Space Mono', monospace;
+      font-size: 0.75rem;
+      color: var(--muted);
+      padding: 6px 14px;
+      border: 1px solid var(--border);
+      border-radius: 20px;
+    }
+
+    .pulse-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent2);
+      animation: pulse 2s infinite;
+    }
+
+    .pulse-dot.offline {
+      background: var(--danger);
+      animation: none;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.8); }
+    }
+
+    /* Main container */
+    .container {
+      position: relative;
+      z-index: 1;
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 40px 24px;
+    }
+
+    /* Header section */
+    .page-header {
+      margin-bottom: 40px;
+    }
+
+    .page-header h1 {
+      font-size: 2.8rem;
+      font-weight: 800;
+      letter-spacing: -1px;
+      line-height: 1.1;
+      background: linear-gradient(90deg, var(--text), var(--accent));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .page-header p {
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 0.95rem;
+      font-family: 'Space Mono', monospace;
+    }
+
+    /* Stats bar */
+    .stats-bar {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 32px;
+      flex-wrap: wrap;
+    }
+
+    .stat-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px 24px;
+      min-width: 140px;
+    }
+
+    .stat-label {
+      font-family: 'Space Mono', monospace;
+      font-size: 0.7rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .stat-value {
+      font-size: 2rem;
+      font-weight: 800;
+      color: var(--accent);
+      margin-top: 4px;
+      font-family: 'Space Mono', monospace;
+    }
+
+    /* Search/filter bar */
+    .filter-bar {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 24px;
+      align-items: center;
+    }
+
+    .search-input {
+      flex: 1;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 16px;
+      color: var(--text);
+      font-family: 'Space Mono', monospace;
+      font-size: 0.85rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .search-input:focus {
+      border-color: var(--accent);
+    }
+
+    .search-input::placeholder {
+      color: var(--muted);
+    }
+
+    .refresh-btn {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      color: var(--accent);
+      padding: 10px 18px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-family: 'Space Mono', monospace;
+      font-size: 0.8rem;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+
+    .refresh-btn:hover {
+      background: rgba(0,229,255,0.08);
+      border-color: var(--accent);
+    }
+
+    /* Last updated text */
+    .last-updated {
+      font-family: 'Space Mono', monospace;
+      font-size: 0.72rem;
+      color: var(--muted);
+      margin-bottom: 20px;
+    }
+
+    /* Users grid */
+    .users-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 16px;
+    }
+
+    /* User card */
+    .user-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      position: relative;
+      overflow: hidden;
+      transition: border-color 0.3s, transform 0.2s;
+      animation: cardIn 0.4s ease both;
+    }
+
+    .user-card:hover {
+      border-color: rgba(0,229,255,0.3);
+      transform: translateY(-2px);
+    }
+
+    .user-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+
+    .user-card:hover::before {
+      opacity: 1;
+    }
+
+    @keyframes cardIn {
+      from { opacity: 0; transform: translateY(12px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .card-top {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .avatar {
+      width: 42px;
+      height: 42px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.1rem;
+      font-weight: 800;
+      color: #060a10;
+      flex-shrink: 0;
+      font-family: 'Space Mono', monospace;
+    }
+
+    .user-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .user-name {
+      font-weight: 700;
+      font-size: 1rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .user-since {
+      font-family: 'Space Mono', monospace;
+      font-size: 0.68rem;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    .online-badge {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent2);
+      animation: pulse 2s infinite;
+      flex-shrink: 0;
+    }
+
+    /* Room display */
+    .room-block {
+      background: rgba(0,229,255,0.04);
+      border: 1px solid rgba(0,229,255,0.12);
+      border-radius: 8px;
+      padding: 12px 14px;
+    }
+
+    .room-label {
+      font-family: 'Space Mono', monospace;
+      font-size: 0.65rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .room-name {
+      font-size: 1.8rem;
+      font-weight: 800;
+      color: var(--accent);
+      font-family: 'Space Mono', monospace;
+      line-height: 1.1;
+      margin-top: 2px;
+    }
+
+    .room-meta {
+      display: flex;
+      gap: 12px;
+      margin-top: 8px;
+    }
+
+    .meta-tag {
+      font-family: 'Space Mono', monospace;
+      font-size: 0.65rem;
+      color: var(--muted);
+      background: var(--surface);
+      padding: 3px 8px;
+      border-radius: 4px;
+    }
+
+    /* Empty state */
+    .empty-state {
+      text-align: center;
+      padding: 80px 20px;
+      color: var(--muted);
+      grid-column: 1 / -1;
+    }
+
+    .empty-icon {
+      font-size: 3rem;
+      margin-bottom: 16px;
+      display: block;
+      opacity: 0.4;
+    }
+
+    .empty-state h3 {
+      font-size: 1.1rem;
+      color: var(--text);
+      margin-bottom: 8px;
+    }
+
+    .empty-state p {
+      font-family: 'Space Mono', monospace;
+      font-size: 0.78rem;
+    }
+
+    /* Error banner */
+    .error-banner {
+      background: rgba(255,77,109,0.1);
+      border: 1px solid rgba(255,77,109,0.3);
+      border-radius: 8px;
+      padding: 12px 16px;
+      font-family: 'Space Mono', monospace;
+      font-size: 0.8rem;
+      color: var(--danger);
+      margin-bottom: 20px;
+      display: none;
+    }
+
+    /* Footer */
+    footer {
+      position: relative;
+      z-index: 1;
+      text-align: center;
+      padding: 24px;
+      border-top: 1px solid var(--border);
+      font-family: 'Space Mono', monospace;
+      font-size: 0.72rem;
+      color: var(--muted);
+      margin-top: 60px;
+    }
+
+    @media (max-width: 600px) {
+      .navbar { padding: 16px 20px; }
+      .page-header h1 { font-size: 2rem; }
+      .container { padding: 24px 16px; }
+      .stats-bar { gap: 10px; }
+    }
+  </style>
 </head>
 <body>
-  <h1>Indoor Localization Module</h1>
-  <p>This is where BSSID detection and mapping will happen.</p>
+
+  <nav class="navbar">
+    <div class="logo">IndoorLocate</div>
+    <div class="nav-right">
+      <div class="status-pill">
+        <div class="pulse-dot" id="statusDot"></div>
+        <span id="statusText">LIVE</span>
+      </div>
+      <button class="nav-btn" onclick="window.location.href='/'">Home</button>
+    </div>
+  </nav>
+
+  <div class="container">
+
+    <div class="page-header">
+      <h1>Live Locations</h1>
+      <p>// Real-time indoor positioning — updates every 8 seconds</p>
+    </div>
+
+    <!-- Stats bar -->
+    <div class="stats-bar">
+      <div class="stat-card">
+        <div class="stat-label">Active Users</div>
+        <div class="stat-value" id="statUsers">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Rooms Occupied</div>
+        <div class="stat-value" id="statRooms">—</div>
+      </div>
+    </div>
+
+    <!-- Error banner -->
+    <div class="error-banner" id="errorBanner">
+      ⚠ Failed to fetch location data. Retrying...
+    </div>
+
+    <!-- Filter bar -->
+    <div class="filter-bar">
+      <input
+        type="text"
+        class="search-input"
+        id="searchInput"
+        placeholder="Search by user or room..."
+        oninput="filterCards()"
+      />
+      <button class="refresh-btn" onclick="fetchLocations()">↻ Refresh</button>
+    </div>
+
+    <div class="last-updated" id="lastUpdated">Last updated: —</div>
+
+    <!-- Users grid -->
+    <div class="users-grid" id="usersGrid">
+      <div class="empty-state">
+        <span class="empty-icon">📡</span>
+        <h3>Waiting for data...</h3>
+        <p>Fetching live locations</p>
+      </div>
+    </div>
+
+  </div>
+
+  <footer>
+    Final Year Engineering Project &nbsp;•&nbsp; Indoor Location Detection System
+  </footer>
+
+  <script>
+    let allUsers = [];
+
+    /* Generate initials from user_id */
+    function getInitials(userId) {
+      return userId.substring(0, 2).toUpperCase();
+    }
+
+    /* Format time ago */
+    function timeAgo(timestamp) {
+      const diff = Math.floor((Date.now() - new Date(timestamp)) / 1000);
+      if (diff < 60) return `${diff}s ago`;
+      if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+      return `${Math.floor(diff / 3600)}h ago`;
+    }
+
+    /* Build a single user card */
+    function buildCard(user) {
+      const initials = getInitials(user.user_id);
+      const floor = user.floor ? `Floor ${user.floor}` : 'Floor —';
+      const building = user.building || 'Building —';
+      const ago = timeAgo(user.last_seen);
+
+      return `
+        <div class="user-card" data-userid="${user.user_id}" data-room="${user.room_name}">
+          <div class="card-top">
+            <div class="avatar">${initials}</div>
+            <div class="user-info">
+              <div class="user-name">${user.user_id}</div>
+              <div class="user-since">Last seen ${ago}</div>
+            </div>
+            <div class="online-badge"></div>
+          </div>
+          <div class="room-block">
+            <div class="room-label">Current Room</div>
+            <div class="room-name">${user.room_name}</div>
+            <div class="room-meta">
+              <span class="meta-tag">${floor}</span>
+              <span class="meta-tag">${building}</span>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    /* Render grid */
+    function renderGrid(users) {
+      const grid = document.getElementById('usersGrid');
+
+      if (users.length === 0) {
+        grid.innerHTML = `
+          <div class="empty-state">
+            <span class="empty-icon">📡</span>
+            <h3>No users detected</h3>
+            <p>Waiting for app check-ins...</p>
+          </div>
+        `;
+        return;
+      }
+
+      grid.innerHTML = users.map(buildCard).join('');
+    }
+
+    /* Filter cards by search */
+    function filterCards() {
+      const query = document.getElementById('searchInput').value.toLowerCase();
+      const filtered = allUsers.filter(u =>
+        u.user_id.toLowerCase().includes(query) ||
+        u.room_name.toLowerCase().includes(query)
+      );
+      renderGrid(filtered);
+    }
+
+    /* Fetch from API */
+    async function fetchLocations() {
+      const dot = document.getElementById('statusDot');
+      const statusText = document.getElementById('statusText');
+      const errorBanner = document.getElementById('errorBanner');
+
+      try {
+        const res = await fetch('/api/all-locations');
+        const data = await res.json();
+
+        if (!data.success) throw new Error('API error');
+
+        allUsers = data.users;
+
+        /* Update stats */
+        document.getElementById('statUsers').textContent = data.count;
+        const uniqueRooms = new Set(data.users.map(u => u.room_name)).size;
+        document.getElementById('statRooms').textContent = uniqueRooms;
+
+        /* Update timestamp */
+        const now = new Date().toLocaleTimeString();
+        document.getElementById('lastUpdated').textContent = `Last updated: ${now}`;
+
+        /* Status — online */
+        dot.className = 'pulse-dot';
+        statusText.textContent = 'LIVE';
+        errorBanner.style.display = 'none';
+
+        /* Render */
+        filterCards();
+
+      } catch (err) {
+        console.error('Fetch error:', err);
+        dot.className = 'pulse-dot offline';
+        statusText.textContent = 'ERROR';
+        errorBanner.style.display = 'block';
+      }
+    }
+
+    /* Init */
+    fetchLocations();
+    setInterval(fetchLocations, 8000);
+  </script>
+
 </body>
 </html>
