@@ -1,631 +1,1288 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Live Locations – IndoorLocate</title>
+  <title>Floor Map – IndoorLocate</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
-
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="/socket.io/socket.io.js"></script>
   <style>
     :root {
-      --bg: #060a10;
-      --surface: #0d1520;
-      --border: #1a2740;
-      --accent: #00e5ff;
-      --accent2: #00ff9d;
-      --danger: #ff4d6d;
-      --text: #e8f0fe;
-      --muted: #4a6080;
-      --card-bg: #0a1628;
+      --wall:          #1e2638;
+      --corridor:      #b8c4d4;
+      --floor-bg:      #dde4ee;
+      --static-room:   #cfd6e8;
+      --static-border: #a4aec4;
+      --empty-room:    #e8ecf6;
+      --empty-border:  #b4bcd4;
+      --occ-room:      #ffffff;
+      --occ-border:    #2563eb;
+      --occ-glow:      rgba(37,99,235,0.15);
+      --accent:        #2563eb;
+      --accent2:       #06b6d4;
+      --green:         #10b981;
+      --red:           #ef4444;
+      --text:          #1e2535;
+      --muted:         #6b7a99;
+      --stair-bg:      #a4afc4;
+      --stair-text:    #4a5470;
+      --service-bg:    #c8cfe0;
+      --mono:          'IBM Plex Mono', monospace;
+      --sans:          'Outfit', sans-serif;
     }
+    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
 
-    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family:var(--sans); background:#d4dbe8; color:var(--text); min-height:100vh; }
 
-    body {
-      background: var(--bg);
-      color: var(--text);
-      font-family: 'Syne', sans-serif;
-      min-height: 100vh;
-      overflow-x: hidden;
-    }
-
-    /* Animated grid background */
-    body::before {
-      content: '';
-      position: fixed;
-      inset: 0;
-      background-image:
-        linear-gradient(rgba(0,229,255,0.03) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(0,229,255,0.03) 1px, transparent 1px);
-      background-size: 40px 40px;
-      pointer-events: none;
-      z-index: 0;
-    }
-
-    /* Glow orb */
-    body::after {
-      content: '';
-      position: fixed;
-      top: -200px;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 600px;
-      height: 600px;
-      background: radial-gradient(circle, rgba(0,229,255,0.06) 0%, transparent 70%);
-      pointer-events: none;
-      z-index: 0;
-    }
-
-    /* Navbar */
+    /* ─── Navbar ─── */
     .navbar {
-      position: relative;
-      z-index: 10;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 20px 40px;
-      border-bottom: 1px solid var(--border);
-      background: rgba(6,10,16,0.8);
-      backdrop-filter: blur(12px);
+      background:var(--wall); height:54px;
+      display:flex; align-items:center; justify-content:space-between;
+      padding:0 28px; position:sticky; top:0; z-index:200;
+      box-shadow:0 2px 12px rgba(0,0,0,0.3);
     }
-
-    .logo {
-      font-size: 1.3rem;
-      font-weight: 800;
-      letter-spacing: -0.5px;
-      color: var(--accent);
+    .logo { font-family:var(--mono); font-size:1rem; font-weight:600; color:#fff; letter-spacing:1px; }
+    .logo span { color:var(--accent2); }
+    .nav-right { display:flex; align-items:center; gap:12px; }
+    .live-pill {
+      display:flex; align-items:center; gap:6px;
+      background:rgba(16,185,129,0.12); border:1px solid rgba(16,185,129,0.3);
+      border-radius:20px; padding:4px 12px;
+      font-family:var(--mono); font-size:0.68rem; color:var(--green);
     }
-
-    .nav-right {
-      display: flex;
-      align-items: center;
-      gap: 16px;
-    }
-
+    .live-dot { width:7px; height:7px; border-radius:50%; background:var(--green); animation:blink 1.8s infinite; }
+    .live-dot.err { background:var(--red); animation:none; }
+    @keyframes blink { 0%,100%{opacity:1}50%{opacity:0.3} }
     .nav-btn {
-      background: transparent;
-      border: 1px solid var(--border);
-      color: var(--text);
-      padding: 8px 18px;
-      border-radius: 6px;
-      cursor: pointer;
-      font-family: 'Syne', sans-serif;
-      font-size: 0.85rem;
-      transition: all 0.2s;
+      background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15);
+      color:#fff; padding:5px 14px; border-radius:6px;
+      cursor:pointer; font-family:var(--sans); font-size:0.8rem; font-weight:500;
     }
+    .nav-btn:hover { background:rgba(255,255,255,0.18); }
 
-    .nav-btn:hover {
-      border-color: var(--accent);
-      color: var(--accent);
+    /* ─── Topbar ─── */
+    .topbar {
+      background:#fff; border-bottom:1px solid #dde3ec;
+      padding:10px 28px;
+      display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;
     }
-
-    /* Status pill */
-    .status-pill {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-family: 'Space Mono', monospace;
-      font-size: 0.75rem;
-      color: var(--muted);
-      padding: 6px 14px;
-      border: 1px solid var(--border);
-      border-radius: 20px;
-    }
-
-    .pulse-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--accent2);
-      animation: pulse 2s infinite;
-    }
-
-    .pulse-dot.offline {
-      background: var(--danger);
-      animation: none;
-    }
-
-    @keyframes pulse {
-      0%, 100% { opacity: 1; transform: scale(1); }
-      50% { opacity: 0.4; transform: scale(0.8); }
-    }
-
-    /* Main container */
-    .container {
-      position: relative;
-      z-index: 1;
-      max-width: 1100px;
-      margin: 0 auto;
-      padding: 40px 24px;
-    }
-
-    /* Header section */
-    .page-header {
-      margin-bottom: 40px;
-    }
-
-    .page-header h1 {
-      font-size: 2.8rem;
-      font-weight: 800;
-      letter-spacing: -1px;
-      line-height: 1.1;
-      background: linear-gradient(90deg, var(--text), var(--accent));
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-    }
-
-    .page-header p {
-      margin-top: 10px;
-      color: var(--muted);
-      font-size: 0.95rem;
-      font-family: 'Space Mono', monospace;
-    }
-
-    /* Stats bar */
-    .stats-bar {
-      display: flex;
-      gap: 16px;
-      margin-bottom: 32px;
-      flex-wrap: wrap;
-    }
-
-    .stat-card {
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 16px 24px;
-      min-width: 140px;
-    }
-
-    .stat-label {
-      font-family: 'Space Mono', monospace;
-      font-size: 0.7rem;
-      color: var(--muted);
-      text-transform: uppercase;
-      letter-spacing: 1px;
-    }
-
-    .stat-value {
-      font-size: 2rem;
-      font-weight: 800;
-      color: var(--accent);
-      margin-top: 4px;
-      font-family: 'Space Mono', monospace;
-    }
-
-    /* Search/filter bar */
-    .filter-bar {
-      display: flex;
-      gap: 12px;
-      margin-bottom: 24px;
-      align-items: center;
-    }
-
-    .search-input {
-      flex: 1;
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 10px 16px;
-      color: var(--text);
-      font-family: 'Space Mono', monospace;
-      font-size: 0.85rem;
-      outline: none;
-      transition: border-color 0.2s;
-    }
-
-    .search-input:focus {
-      border-color: var(--accent);
-    }
-
-    .search-input::placeholder {
-      color: var(--muted);
-    }
-
+    .building-info h2 { font-size:0.95rem; font-weight:700; }
+    .building-info p { font-family:var(--mono); font-size:0.65rem; color:var(--muted); margin-top:2px; }
+    .stats { display:flex; align-items:center; gap:18px; }
+    .stat { text-align:center; }
+    .stat-n { font-family:var(--mono); font-size:1.35rem; font-weight:600; color:var(--accent); line-height:1; }
+    .stat-l { font-size:0.62rem; color:var(--muted); text-transform:uppercase; letter-spacing:0.4px; margin-top:2px; }
+    .sep { width:1px; height:28px; background:#e2e6ef; }
     .refresh-btn {
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      color: var(--accent);
-      padding: 10px 18px;
-      border-radius: 8px;
-      cursor: pointer;
-      font-family: 'Space Mono', monospace;
-      font-size: 0.8rem;
-      transition: all 0.2s;
-      white-space: nowrap;
+      background:var(--accent); border:none; color:#fff;
+      padding:6px 14px; border-radius:6px; cursor:pointer;
+      font-family:var(--mono); font-size:0.72rem; transition:opacity .2s;
+    }
+    .refresh-btn:hover { opacity:0.85; }
+
+    /* ─── Wrapper ─── */
+    .fp-wrapper {
+      padding:24px 16px;
+      overflow-x:auto;
+      min-height:calc(100vh - 110px);
+      display:flex; align-items:flex-start; justify-content:center;
     }
 
-    .refresh-btn:hover {
-      background: rgba(0,229,255,0.08);
-      border-color: var(--accent);
+    /* ─── Building shell ─── */
+    .building {
+      background:var(--wall); border-radius:14px; padding:16px;
+      width:100%; max-width:1120px;
+      box-shadow:0 10px 50px rgba(0,0,0,0.3);
+    }
+    .building-label {
+      font-family:var(--mono); font-size:0.58rem; color:rgba(255,255,255,0.28);
+      text-transform:uppercase; letter-spacing:2px; margin-bottom:12px;
     }
 
-    /* Last updated text */
-    .last-updated {
-      font-family: 'Space Mono', monospace;
-      font-size: 0.72rem;
-      color: var(--muted);
-      margin-bottom: 20px;
+    /* ═══════════════════════════════════════════════════
+       FLOOR PLAN GRID
+       11 columns:
+         C1 42px  = NW/SW step column
+         C2 1fr   = north/south outer-A rooms + west inner 306/301/337
+         C3 1fr   = north/south outer-B rooms + stair shaft (middle rows)
+         C4 36px  = inner staircase L shaft
+         C5 1fr   = 307/302/334/332
+         C6 1fr   = 310/309/331/330
+         C7 1fr   = service-zone(R1,R7) / 311(R3) / storage(R4) / 329(R5)
+         C8 1fr   = service-zone(R1,R7) / 313(R3+R4) / 328(R5)
+         C9 1fr   = 314(R1) / 319(R3) / shaft(R4) / 321(R5) / 326(R7)
+         C10 10px = east corridor
+         C11 1fr  = east wing (spans all rows, flex inside)
+       7 rows:
+         R1 auto  = north face rooms
+         R2 14px  = top corridor-H
+         R3 auto  = upper middle rooms
+         R4 auto  = shafts + under-floor storage
+         R5 auto  = lower middle rooms
+         R6 14px  = bottom corridor-H
+         R7 auto  = south face rooms
+    ═══════════════════════════════════════════════════ */
+    .fp {
+      display:grid;
+      grid-template-columns: 42px 1fr 1fr 36px 1fr 1fr 1fr 1fr 1fr 10px 1fr;
+      grid-template-rows: auto 14px auto auto auto 14px auto;
+      gap:0;
+      background:var(--corridor);
+      border-radius:10px;
+      overflow:hidden;
     }
 
-    /* Users grid */
-    .users-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-      gap: 16px;
+    /* ─── Base room ─── */
+    .room {
+      background:var(--static-room);
+      border:1.5px solid var(--static-border);
+      margin:3px; border-radius:6px;
+      padding:7px 6px;
+      display:flex; flex-direction:column;
+      min-height:72px; position:relative;
+      font-size:0.65rem; color:var(--muted);
+      font-family:var(--mono); overflow:hidden;
+    }
+    /* door notch */
+    .room::after {
+      content:''; position:absolute; bottom:-1px; left:50%;
+      transform:translateX(-50%);
+      width:16px; height:3px;
+      background:var(--corridor); border-radius:2px 2px 0 0;
+    }
+    .room-num { font-size:0.88rem; font-weight:700; color:#3a4562; line-height:1; margin-bottom:2px; }
+    .room-name-label { font-size:0.52rem; color:var(--muted); line-height:1.3; margin-bottom:3px; word-break:break-word; }
+
+    /* ─── DB (live-tracked) rooms ─── */
+    .db-room { cursor:pointer; transition:all 0.18s; }
+    .db-room.empty-state {
+      background:var(--empty-room);
+      border-color:var(--empty-border);
+      opacity:0.62;
+    }
+    .db-room.occupied-state {
+      background:var(--occ-room);
+      border-color:var(--occ-border);
+      box-shadow:0 0 0 3px var(--occ-glow), 0 3px 14px rgba(37,99,235,0.12);
+      opacity:1;
+    }
+    .db-room:hover { opacity:1 !important; transform:scale(1.035); z-index:10; box-shadow:0 6px 20px rgba(0,0,0,0.18); }
+    .db-room.occupied-state .room-num { color:var(--accent); }
+
+    .count-badge {
+      position:absolute; top:5px; right:5px;
+      background:var(--accent); color:#fff;
+      border-radius:20px; padding:1px 6px;
+      font-family:var(--mono); font-size:0.56rem; font-weight:600;
+    }
+    .user-chips { display:flex; flex-direction:column; gap:2px; margin-top:3px; overflow:hidden; flex:1; }
+    .chip {
+      background:rgba(37,99,235,0.1); border-radius:3px; padding:1px 5px;
+      font-size:0.56rem; font-weight:600; color:var(--accent);
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    }
+    .more-text { font-size:0.53rem; color:var(--muted); padding-left:1px; }
+
+    /* ─── Staircase blocks ─── */
+    .stair-block {
+      background:var(--stair-bg);
+      margin:3px; border-radius:6px;
+      display:flex; flex-direction:column; align-items:center; justify-content:center;
+      gap:2px; font-family:var(--mono); font-size:0.46rem;
+      color:var(--stair-text); text-transform:uppercase; letter-spacing:0.8px;
+      position:relative; overflow:hidden;
+    }
+    /* diagonal stair lines texture */
+    .stair-block::before {
+      content:''; position:absolute; inset:0;
+      background:repeating-linear-gradient(
+        45deg, transparent, transparent 5px,
+        rgba(0,0,0,0.07) 5px, rgba(0,0,0,0.07) 6px
+      );
+    }
+    .stair-ico { font-size:1.1rem; opacity:0.55; position:relative; z-index:1; }
+    .stair-lbl { position:relative; z-index:1; text-align:center; line-height:1.4; }
+
+    /* ─── Inner stair shaft (C4, spans middle rows) ─── */
+    .shaft-col {
+      background:#9aa5bc;
+      margin:3px; border-radius:6px;
+      display:flex; flex-direction:column; align-items:center; justify-content:center;
+      gap:0; position:relative; overflow:hidden;
+    }
+    .shaft-col::before {
+      content:''; position:absolute; inset:0;
+      background:repeating-linear-gradient(
+        90deg, transparent, transparent 3px,
+        rgba(255,255,255,0.12) 3px, rgba(255,255,255,0.12) 4px
+      );
     }
 
-    /* User card */
-    .user-card {
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 20px;
-      position: relative;
-      overflow: hidden;
-      transition: border-color 0.3s, transform 0.2s;
-      animation: cardIn 0.4s ease both;
+    /* ─── Horizontal corridors ─── */
+    .corr-h {
+      background:var(--corridor);
+      display:flex; align-items:center; justify-content:center;
+      position:relative; overflow:hidden;
+    }
+    .corr-h::before {
+      content:attr(data-label);
+      font-family:var(--mono); font-size:0.52rem;
+      color:#7a8899; text-transform:uppercase; letter-spacing:2px;
+      position:relative; z-index:1;
+    }
+    .corr-h::after {
+      content:''; position:absolute; inset:0;
+      background:repeating-linear-gradient(90deg, transparent, transparent 26px, rgba(0,0,0,0.04) 26px, rgba(0,0,0,0.04) 27px);
     }
 
-    .user-card:hover {
-      border-color: rgba(0,229,255,0.3);
-      transform: translateY(-2px);
+    /* ─── Service zones (stair + WR + Open Area) ─── */
+    .service-zone {
+      margin:3px; border-radius:6px; overflow:hidden;
+      display:flex; flex-direction:row; gap:0;
+      background:var(--service-bg);
+    }
+    .sz-stair {
+      background:var(--stair-bg); flex:0 0 32px;
+      display:flex; flex-direction:column; align-items:center; justify-content:center;
+      gap:2px; font-family:var(--mono); font-size:0.44rem;
+      color:var(--stair-text); text-transform:uppercase; letter-spacing:0.7px;
+      position:relative; overflow:hidden;
+    }
+    .sz-stair::before {
+      content:''; position:absolute; inset:0;
+      background:repeating-linear-gradient(45deg,transparent,transparent 4px,rgba(0,0,0,0.08) 4px,rgba(0,0,0,0.08) 5px);
+    }
+    .sz-stair span { font-size:0.9rem; opacity:0.55; position:relative; z-index:1; }
+    .sz-stair-lbl { position:relative; z-index:1; text-align:center; }
+    .sz-wc {
+      flex:0 0 28px;
+      background:#bcc5d8;
+      display:flex; flex-direction:column; align-items:center; justify-content:center;
+      gap:2px; font-family:var(--mono); font-size:0.44rem;
+      color:#5a6480; text-transform:uppercase; letter-spacing:0.6px;
+      border-left:1px solid rgba(0,0,0,0.1);
+    }
+    .sz-wc span { font-size:0.85rem; }
+    .sz-open {
+      flex:1;
+      background:#d0d8e8;
+      display:flex; flex-direction:column; align-items:center; justify-content:center;
+      font-family:var(--mono); font-size:0.46rem;
+      color:#6a7490; text-transform:uppercase; letter-spacing:0.7px;
+      text-align:center; line-height:1.4;
+      border-left:1px solid rgba(0,0,0,0.08);
+      position:relative; overflow:hidden;
+    }
+    .sz-open::before {
+      content:''; position:absolute; inset:0;
+      background:repeating-linear-gradient(-45deg,transparent,transparent 6px,rgba(0,0,0,0.03) 6px,rgba(0,0,0,0.03) 7px);
+    }
+    .sz-open span { position:relative; z-index:1; }
+
+    /* ─── Under-floor storage / structural ─── */
+    .storage-zone {
+      margin:3px; border-radius:6px;
+      background:#c0c9d8;
+      border:1.5px dashed #9aA4b8;
+      display:flex; align-items:center; justify-content:center;
+      font-family:var(--mono); font-size:0.52rem;
+      color:#6a7490; text-transform:uppercase; letter-spacing:1px;
+      text-align:center; line-height:1.6;
+      position:relative; overflow:hidden; min-height:44px;
+    }
+    .storage-zone::before {
+      content:''; position:absolute; inset:0;
+      background:repeating-linear-gradient(45deg,transparent,transparent 8px,rgba(0,0,0,0.03) 8px,rgba(0,0,0,0.03) 9px);
+    }
+    .storage-zone span { position:relative; z-index:1; }
+
+    /* ─── Small shaft connector (between rooms in a col) ─── */
+    .mini-shaft {
+      margin:3px; border-radius:5px;
+      background:#a8b2c6;
+      min-height:22px;
+      display:flex; align-items:center; justify-content:center;
+      font-family:var(--mono); font-size:0.42rem;
+      color:#6070878; letter-spacing:0.5px; text-transform:uppercase;
+      position:relative; overflow:hidden;
+    }
+    .mini-shaft::before {
+      content:''; position:absolute; inset:0;
+      background:repeating-linear-gradient(90deg,transparent,transparent 3px,rgba(255,255,255,0.1) 3px,rgba(255,255,255,0.1) 4px);
+    }
+    .mini-shaft span { position:relative; z-index:1; color:#5a6680; font-size:0.42rem; }
+
+    /* ─── East wing container ─── */
+    .east-wing-col {
+      display:flex; flex-direction:column;
+      margin:3px; gap:3px;
+    }
+    .east-wing-col .room { margin:0; flex:1; min-height:0; }
+    .east-wing-col .stair-block { margin:0; min-height:38px; flex-shrink:0; }
+    .east-wing-col .room.open-area-room {
+      background:#cdd5e4; border-style:dashed;
+      flex:0.7;
     }
 
-    .user-card::before {
-      content: '';
-      position: absolute;
-      top: 0; left: 0; right: 0;
-      height: 2px;
-      background: linear-gradient(90deg, var(--accent), var(--accent2));
-      opacity: 0;
-      transition: opacity 0.3s;
+    /* ─── Legend ─── */
+    .legend { display:flex; gap:16px; margin-top:12px; flex-wrap:wrap; }
+    .leg { display:flex; align-items:center; gap:6px; font-family:var(--mono); font-size:0.6rem; color:rgba(255,255,255,0.4); }
+    .leg-box { width:12px; height:12px; border-radius:3px; }
+    .leg-box.occ  { background:#fff; border:2px solid var(--accent); }
+    .leg-box.emp  { background:var(--empty-room); border:1.5px solid var(--empty-border); opacity:0.7; }
+    .leg-box.stat { background:var(--static-room); border:1.5px solid var(--static-border); }
+
+    /* ─── Modal ─── */
+    .overlay {
+      position:fixed; inset:0;
+      background:rgba(10,15,28,0.55); backdrop-filter:blur(5px);
+      z-index:300; display:none; align-items:center; justify-content:center; padding:20px;
+    }
+    .overlay.open { display:flex; }
+    .modal {
+      background:#fff; border-radius:16px; padding:26px;
+      max-width:370px; width:100%;
+      box-shadow:0 24px 60px rgba(0,0,0,0.22);
+      animation:mIn .22s cubic-bezier(.34,1.56,.64,1);
+    }
+    @keyframes mIn { from{opacity:0;transform:scale(.9) translateY(8px)} to{opacity:1;transform:scale(1)} }
+    .modal-head { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:16px; }
+    .m-room { font-family:var(--mono); font-size:2rem; font-weight:600; color:var(--accent); line-height:1; }
+    .m-sub  { font-size:0.72rem; color:var(--muted); margin-top:3px; }
+    .m-close {
+      background:#f0f3f8; border:none; width:28px; height:28px;
+      border-radius:50%; cursor:pointer; font-size:0.85rem; color:var(--muted);
+      display:flex; align-items:center; justify-content:center;
+    }
+    .m-close:hover { background:#e2e6ef; }
+    .m-hr { border:none; border-top:1px solid #e5e8f0; margin-bottom:16px; }
+    .m-list { display:flex; flex-direction:column; gap:10px; }
+    .m-row  { display:flex; align-items:center; gap:10px; }
+    .m-av {
+      width:36px; height:36px; border-radius:9px;
+      background:linear-gradient(135deg,var(--accent),var(--accent2));
+      display:flex; align-items:center; justify-content:center;
+      font-family:var(--mono); font-size:0.75rem; font-weight:600; color:#fff; flex-shrink:0;
+    }
+    .m-name { font-weight:700; font-size:0.88rem; }
+    .m-time { font-family:var(--mono); font-size:0.63rem; color:var(--muted); margin-top:1px; }
+    .m-empty { text-align:center; padding:20px 0; color:var(--muted); font-size:0.83rem; }
+    .m-empty-ico { font-size:1.8rem; display:block; margin-bottom:7px; }
+
+    /* ─── Find-a-Person Search Bar ─── */
+    .search-bar-wrap {
+      display:flex; align-items:center; gap:8px;
+      background:#f4f6fb; border:1.5px solid #dde3ef;
+      border-radius:10px; padding:5px 10px 5px 14px;
+      transition:border-color .2s, box-shadow .2s;
+      position:relative; flex:1; max-width:320px;
+    }
+    .search-bar-wrap:focus-within {
+      border-color:var(--accent); box-shadow:0 0 0 3px rgba(37,99,235,0.1);
+      background:#fff;
+    }
+    .search-icon { font-size:0.85rem; color:var(--muted); flex-shrink:0; }
+    .search-input {
+      border:none; background:transparent; outline:none;
+      font-family:var(--mono); font-size:0.75rem; color:var(--text);
+      width:100%; min-width:0;
+    }
+    .search-input::placeholder { color:#aab4c8; }
+    .search-clear {
+      border:none; background:none; cursor:pointer;
+      color:#aab4c8; font-size:0.9rem; padding:0 2px; flex-shrink:0;
+      line-height:1; display:none;
+    }
+    .search-clear.visible { display:block; }
+    .search-clear:hover { color:var(--red); }
+
+    /* Dropdown suggestions */
+    .search-dropdown {
+      position:absolute; top:calc(100% + 6px); left:0; right:0;
+      background:#fff; border:1.5px solid #dde3ef; border-radius:10px;
+      box-shadow:0 8px 30px rgba(0,0,0,0.12);
+      z-index:500; overflow:hidden; display:none;
+    }
+    .search-dropdown.open { display:block; }
+    .sd-item {
+      display:flex; align-items:center; gap:10px;
+      padding:9px 14px; cursor:pointer;
+      transition:background .12s; border-bottom:1px solid #f0f3f8;
+    }
+    .sd-item:last-child { border-bottom:none; }
+    .sd-item:hover { background:#f0f5ff; }
+    .sd-av {
+      width:28px; height:28px; border-radius:7px; flex-shrink:0;
+      background:linear-gradient(135deg,var(--accent),var(--accent2));
+      display:flex; align-items:center; justify-content:center;
+      font-family:var(--mono); font-size:0.62rem; font-weight:700; color:#fff;
+    }
+    .sd-info { flex:1; min-width:0; }
+    .sd-name { font-weight:700; font-size:0.8rem; color:var(--text);
+               white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .sd-room { font-family:var(--mono); font-size:0.62rem; color:var(--accent); margin-top:1px; }
+    .sd-time { font-family:var(--mono); font-size:0.6rem; color:var(--muted); flex-shrink:0; }
+    .sd-empty {
+      padding:14px; text-align:center;
+      font-family:var(--mono); font-size:0.72rem; color:var(--muted);
     }
 
-    .user-card:hover::before {
-      opacity: 1;
+    /* Found-person result banner (below search bar) */
+    .search-result-banner {
+      position:absolute; top:calc(100% + 6px); left:0; right:0;
+      border-radius:10px; padding:10px 14px;
+      display:none; align-items:center; gap:10px;
+      font-family:var(--mono); font-size:0.72rem; z-index:500;
+    }
+    .search-result-banner.found {
+      display:flex; background:#eff6ff; border:1.5px solid #bfdbfe; color:var(--accent);
+    }
+    .search-result-banner.notfound {
+      display:flex; background:#fff5f5; border:1.5px solid #fecaca; color:var(--red);
+    }
+    .srb-icon { font-size:1.1rem; flex-shrink:0; }
+    .srb-text { flex:1; line-height:1.4; }
+    .srb-goto {
+      background:var(--accent); color:#fff; border:none; border-radius:6px;
+      padding:4px 10px; font-family:var(--mono); font-size:0.65rem; font-weight:600;
+      cursor:pointer; white-space:nowrap; flex-shrink:0;
+    }
+    .srb-goto:hover { opacity:0.85; }
+
+    /* Room highlight pulse — added by JS when a room is found */
+    @keyframes roomPulse {
+      0%   { box-shadow: 0 0 0 0   rgba(37,99,235,0.7), 0 0 0 0   rgba(37,99,235,0.4); }
+      50%  { box-shadow: 0 0 0 8px rgba(37,99,235,0.2), 0 0 0 16px rgba(37,99,235,0.08); }
+      100% { box-shadow: 0 0 0 0   rgba(37,99,235,0);   0 0 0 0   rgba(37,99,235,0); }
+    }
+    .room-highlight {
+      animation: roomPulse 1s ease-out infinite;
+      border-color: var(--accent) !important;
+      outline: 2.5px solid var(--accent);
+      z-index: 20;
     }
 
-    @keyframes cardIn {
-      from { opacity: 0; transform: translateY(12px); }
-      to   { opacity: 1; transform: translateY(0); }
-    }
-
-    .card-top {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      margin-bottom: 16px;
-    }
-
-    .avatar {
-      width: 42px;
-      height: 42px;
-      border-radius: 10px;
-      background: linear-gradient(135deg, var(--accent), var(--accent2));
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 1.1rem;
-      font-weight: 800;
-      color: #060a10;
-      flex-shrink: 0;
-      font-family: 'Space Mono', monospace;
-    }
-
-    .user-info {
-      flex: 1;
-      min-width: 0;
-    }
-
-    .user-name {
-      font-weight: 700;
-      font-size: 1rem;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .user-since {
-      font-family: 'Space Mono', monospace;
-      font-size: 0.68rem;
-      color: var(--muted);
-      margin-top: 2px;
-    }
-
-    .online-badge {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--accent2);
-      animation: pulse 2s infinite;
-      flex-shrink: 0;
-    }
-
-    /* Room display */
-    .room-block {
-      background: rgba(0,229,255,0.04);
-      border: 1px solid rgba(0,229,255,0.12);
-      border-radius: 8px;
-      padding: 12px 14px;
-    }
-
-    .room-label {
-      font-family: 'Space Mono', monospace;
-      font-size: 0.65rem;
-      color: var(--muted);
-      text-transform: uppercase;
-      letter-spacing: 1px;
-    }
-
-    .room-name {
-      font-size: 1.8rem;
-      font-weight: 800;
-      color: var(--accent);
-      font-family: 'Space Mono', monospace;
-      line-height: 1.1;
-      margin-top: 2px;
-    }
-
-    .room-meta {
-      display: flex;
-      gap: 12px;
-      margin-top: 8px;
-    }
-
-    .meta-tag {
-      font-family: 'Space Mono', monospace;
-      font-size: 0.65rem;
-      color: var(--muted);
-      background: var(--surface);
-      padding: 3px 8px;
-      border-radius: 4px;
-    }
-
-    /* Empty state */
-    .empty-state {
-      text-align: center;
-      padding: 80px 20px;
-      color: var(--muted);
-      grid-column: 1 / -1;
-    }
-
-    .empty-icon {
-      font-size: 3rem;
-      margin-bottom: 16px;
-      display: block;
-      opacity: 0.4;
-    }
-
-    .empty-state h3 {
-      font-size: 1.1rem;
-      color: var(--text);
-      margin-bottom: 8px;
-    }
-
-    .empty-state p {
-      font-family: 'Space Mono', monospace;
-      font-size: 0.78rem;
-    }
-
-    /* Error banner */
-    .error-banner {
-      background: rgba(255,77,109,0.1);
-      border: 1px solid rgba(255,77,109,0.3);
-      border-radius: 8px;
-      padding: 12px 16px;
-      font-family: 'Space Mono', monospace;
-      font-size: 0.8rem;
-      color: var(--danger);
-      margin-bottom: 20px;
-      display: none;
-    }
-
-    /* Footer */
-    footer {
-      position: relative;
-      z-index: 1;
-      text-align: center;
-      padding: 24px;
-      border-top: 1px solid var(--border);
-      font-family: 'Space Mono', monospace;
-      font-size: 0.72rem;
-      color: var(--muted);
-      margin-top: 60px;
-    }
-
-    @media (max-width: 600px) {
-      .navbar { padding: 16px 20px; }
-      .page-header h1 { font-size: 2rem; }
-      .container { padding: 24px 16px; }
-      .stats-bar { gap: 10px; }
+    @media(max-width:700px) {
+      .fp-wrapper { padding:10px 6px; }
+      .building { padding:10px; }
+      .fp { grid-template-columns: 34px 1fr 1fr 28px 1fr 1fr 1fr 1fr 1fr 8px 1fr; }
+      .room { min-height:56px; padding:5px 4px; }
+      .room-num { font-size:0.75rem; }
+      .search-bar-wrap { max-width:100%; }
     }
   </style>
 </head>
 <body>
 
-  <nav class="navbar">
-    <div class="logo">IndoorLocate</div>
-    <div class="nav-right">
-      <div class="status-pill">
-        <div class="pulse-dot" id="statusDot"></div>
-        <span id="statusText">LIVE</span>
-      </div>
-      <button class="nav-btn" onclick="window.location.href='/'">Home</button>
+<!-- ── Navbar ── -->
+<nav class="navbar">
+  <div class="logo">Indoor<span>Locate</span></div>
+  <div class="nav-right">
+    <div class="live-pill">
+      <div class="live-dot" id="liveDot"></div>
+      <span id="liveText">LIVE</span>
     </div>
-  </nav>
+    <button class="nav-btn" onclick="location.href='/'">← Home</button>
+  </div>
+</nav>
 
-  <div class="container">
-
-    <div class="page-header">
-      <h1>Live Locations</h1>
-      <p>// Real-time indoor positioning — updates every 8 seconds</p>
-    </div>
-
-    <!-- Stats bar -->
-    <div class="stats-bar">
-      <div class="stat-card">
-        <div class="stat-label">Active Users</div>
-        <div class="stat-value" id="statUsers">—</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Rooms Occupied</div>
-        <div class="stat-value" id="statRooms">—</div>
-      </div>
-    </div>
-
-    <!-- Error banner -->
-    <div class="error-banner" id="errorBanner">
-      ⚠ Failed to fetch location data. Retrying...
-    </div>
-
-    <!-- Filter bar -->
-    <div class="filter-bar">
-      <input
-        type="text"
-        class="search-input"
-        id="searchInput"
-        placeholder="Search by user or room..."
-        oninput="filterCards()"
-      />
-      <button class="refresh-btn" onclick="fetchLocations()">↻ Refresh</button>
-    </div>
-
-    <div class="last-updated" id="lastUpdated">Last updated: —</div>
-
-    <!-- Users grid -->
-    <div class="users-grid" id="usersGrid">
-      <div class="empty-state">
-        <span class="empty-icon">📡</span>
-        <h3>Waiting for data...</h3>
-        <p>Fetching live locations</p>
-      </div>
-    </div>
-
+<!-- ── Stats + Search bar ── -->
+<div class="topbar">
+  <div class="building-info">
+    <h2 id="floorTitle">Shivaji Bhavan — 3rd Floor</h2>
+    <p id="lastUpdated">// fetching live data...</p>
   </div>
 
-  <footer>
-    Final Year Engineering Project &nbsp;•&nbsp; Indoor Location Detection System
-  </footer>
+  <!-- ── Find-a-Person Search ── -->
+  <div class="search-bar-wrap" id="searchWrap">
+    <span class="search-icon">🔍</span>
+    <input class="search-input" id="searchInput"
+           type="text" placeholder="Find a person…"
+           autocomplete="off" spellcheck="false"/>
+    <button class="search-clear" id="searchClear" onclick="clearSearch()">✕</button>
 
-  <script>
-    let allUsers = [];
+    <!-- Live dropdown -->
+    <div class="search-dropdown" id="searchDropdown"></div>
 
-    /* Generate initials from user_id */
-    function getInitials(userId) {
-      return userId.substring(0, 2).toUpperCase();
-    }
+    <!-- Result banner (shown after Enter / clicking a result) -->
+    <div class="search-result-banner" id="searchBanner"></div>
+  </div>
 
-    /* Format time ago */
-    function timeAgo(timestamp) {
-      const diff = Math.floor((Date.now() - new Date(timestamp)) / 1000);
-      if (diff < 60) return `${diff}s ago`;
-      if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-      return `${Math.floor(diff / 3600)}h ago`;
-    }
+  <div class="stats">
+    <div class="stat"><div class="stat-n" id="sPeople">—</div><div class="stat-l">People Inside</div></div>
+    <div class="sep"></div>
+    <div class="stat"><div class="stat-n" id="sOcc">—</div><div class="stat-l">Rooms Occupied</div></div>
+    <div class="sep"></div>
+    <div class="stat"><div class="stat-n" id="sTotal">—</div><div class="stat-l">Total Mapped</div></div>
+    <button class="refresh-btn" onclick="fetchData()">↻ Refresh</button>
+  </div>
+</div>
 
-    /* Build a single user card */
-    function buildCard(user) {
-      const initials = getInitials(user.user_id);
-      const floor = user.floor ? `Floor ${user.floor}` : 'Floor —';
-      const building = user.building || 'Building —';
-      const ago = timeAgo(user.last_seen);
+<!-- ══════════════════════════════════════════════
+     FLOOR PLAN
+     Exact layout from Shivaji Bhavan 3F blueprint:
+     ─ Top row   : 304 305 | stair | 307 310 | svc | 314
+     ─ West col  : 306 / 301 / 337
+     ─ Inner-W   : 302 / shaft / 334
+     ─ Centre    : 309 311 313 | storage | 331 329 328
+     ─ Inner-E   : 319 / shaft / 321
+     ─ Bot row   : 335 333 | stair | 332 330 | svc | 326
+     ─ East wing : 316/317/320/open/322/323/324
+═══════════════════════════════════════════════ -->
+<div class="fp-wrapper">
+  <div class="building">
+    <div class="building-label">▸ Shivaji Bhavan · 3rd Floor · NH 207, Doddaballapura</div>
 
-      return `
-        <div class="user-card" data-userid="${user.user_id}" data-room="${user.room_name}">
-          <div class="card-top">
-            <div class="avatar">${initials}</div>
-            <div class="user-info">
-              <div class="user-name">${user.user_id}</div>
-              <div class="user-since">Last seen ${ago}</div>
-            </div>
-            <div class="online-badge"></div>
-          </div>
-          <div class="room-block">
-            <div class="room-label">Current Room</div>
-            <div class="room-name">${user.room_name}</div>
-            <div class="room-meta">
-              <span class="meta-tag">${floor}</span>
-              <span class="meta-tag">${building}</span>
-            </div>
-          </div>
+    <div class="fp">
+
+      <!-- ╔══════════════════════════════════════════════════╗ -->
+      <!-- ║  ROW 1 — NORTH FACE ROOMS                       ║ -->
+      <!-- ╚══════════════════════════════════════════════════╝ -->
+
+      <!-- C1 R1+R2: NW Corner — Room 303 -->
+      <div class="room db-room empty-state" id="room-303" data-room="303" onclick="openModal('303')"
+           style="grid-column:1; grid-row:1/3; margin:3px; border-radius:6px; min-height:0; padding:5px 4px; justify-content:flex-start; align-items:flex-start;">
+        <div class="room-num" style="font-size:0.78rem;">303</div>
+        <div class="room-name-label">NW<br>Corner</div>
+        <div class="user-chips" id="chips-303"></div>
+      </div>
+
+      <!-- C2 R1: Room 304 -->
+      <div class="room db-room empty-state" id="room-304" data-room="304" onclick="openModal('304')" style="grid-column:2; grid-row:1;">
+        <div class="room-num">304</div>
+        <div class="room-name-label">Room 304</div>
+        <div class="user-chips" id="chips-304"></div>
+      </div>
+
+      <!-- C3 R1: Room 305 -->
+      <div class="room db-room empty-state" id="room-305" data-room="305" onclick="openModal('305')" style="grid-column:3; grid-row:1;">
+        <div class="room-num">305</div>
+        <div class="room-name-label">Room 305</div>
+        <div class="user-chips" id="chips-305"></div>
+      </div>
+
+      <!-- C4 R1: Inner Staircase L (top indicator) -->
+      <div class="stair-block" style="grid-column:4; grid-row:1;">
+        <div class="stair-ico">⬜</div>
+        <div class="stair-lbl">Stair</div>
+      </div>
+
+      <!-- C5 R1: Room 307 -->
+      <div class="room db-room empty-state" id="room-307" data-room="307" onclick="openModal('307')" style="grid-column:5; grid-row:1;">
+        <div class="room-num">307</div>
+        <div class="room-name-label">Room 307</div>
+        <div class="user-chips" id="chips-307"></div>
+      </div>
+
+      <!-- C6 R1: Room 310 -->
+      <div class="room db-room empty-state" id="room-310" data-room="310" onclick="openModal('310')" style="grid-column:6; grid-row:1;">
+        <div class="room-num">310</div>
+        <div class="room-name-label">Room 310</div>
+        <div class="user-chips" id="chips-310"></div>
+      </div>
+
+      <!-- C7+C8 R1: Service zone (Staircase + Washroom + Open Area A) -->
+      <div class="service-zone" style="grid-column:7/9; grid-row:1;">
+        <div class="sz-stair">
+          <span>🪜</span>
+          <div class="sz-stair-lbl">Stair</div>
         </div>
-      `;
+        <div class="sz-wc">
+          <span>🚻</span>
+          <div style="font-family:var(--mono);font-size:0.42rem;color:#5a6480;text-transform:uppercase;letter-spacing:0.5px;">WR</div>
+        </div>
+        <div class="sz-open">
+          <span>Open<br>Area A</span>
+        </div>
+      </div>
+
+      <!-- C9 R1: Room 314 -->
+      <div class="room db-room empty-state" id="room-314" data-room="314" onclick="openModal('314')" style="grid-column:9; grid-row:1;">
+        <div class="room-num">314</div>
+        <div class="room-name-label">Room 314</div>
+        <div class="user-chips" id="chips-314"></div>
+      </div>
+
+      <!-- C10 R1-R7: East corridor strip (spans all rows) -->
+      <div style="grid-column:10; grid-row:1/-1; background:var(--corridor);"></div>
+
+      <!-- C11 R1-R7: East wing (flex column, all rooms stacked) -->
+      <div class="east-wing-col" style="grid-column:11; grid-row:1/-1;">
+        <!-- NE Steps at top -->
+        <div class="stair-block" style="min-height:40px; flex-shrink:0;">
+          <div class="stair-ico">🪜</div>
+          <div class="stair-lbl">Steps NE</div>
+        </div>
+        <!-- Room 316 -->
+        <div class="room db-room empty-state" id="room-316" data-room="316" onclick="openModal('316')">
+          <div class="room-num">316</div>
+          <div class="room-name-label">Room 316</div>
+          <div class="user-chips" id="chips-316"></div>
+        </div>
+        <!-- Room 317 -->
+        <div class="room db-room empty-state" id="room-317" data-room="317" onclick="openModal('317')">
+          <div class="room-num">317</div>
+          <div class="room-name-label">Room 317</div>
+          <div class="user-chips" id="chips-317"></div>
+        </div>
+        <!-- Room 320 -->
+        <div class="room db-room empty-state" id="room-320" data-room="320" onclick="openModal('320')">
+          <div class="room-num">320</div>
+          <div class="room-name-label">Room 320</div>
+          <div class="user-chips" id="chips-320"></div>
+        </div>
+        <!-- Open area (mid east wing) -->
+        <div class="room open-area-room" style="flex:0.6; min-height:36px; align-items:center; justify-content:center; text-align:center;">
+          <div style="font-family:var(--mono);font-size:0.48rem;color:#6a7490;text-transform:uppercase;letter-spacing:0.8px;">Open<br>Area</div>
+        </div>
+        <!-- Room 322 -->
+        <div class="room db-room empty-state" id="room-322" data-room="322" onclick="openModal('322')">
+          <div class="room-num">322</div>
+          <div class="room-name-label">Room 322</div>
+          <div class="user-chips" id="chips-322"></div>
+        </div>
+        <!-- Room 323 -->
+        <div class="room db-room empty-state" id="room-323" data-room="323" onclick="openModal('323')">
+          <div class="room-num">323</div>
+          <div class="room-name-label">Room 323</div>
+          <div class="user-chips" id="chips-323"></div>
+        </div>
+        <!-- Room 324 -->
+        <div class="room db-room empty-state" id="room-324" data-room="324" onclick="openModal('324')">
+          <div class="room-num">324</div>
+          <div class="room-name-label">Room 324</div>
+          <div class="user-chips" id="chips-324"></div>
+        </div>
+        <!-- SE Steps at bottom -->
+        <div class="stair-block" style="min-height:40px; flex-shrink:0;">
+          <div class="stair-ico">🪜</div>
+          <div class="stair-lbl">Steps SE</div>
+        </div>
+      </div>
+
+
+      <!-- ╔══════════════════════════════════════════════════╗ -->
+      <!-- ║  ROW 2 — TOP HORIZONTAL CORRIDOR                ║ -->
+      <!-- ╚══════════════════════════════════════════════════╝ -->
+      <div class="corr-h" data-label="North Corridor" style="grid-column:1/10; grid-row:2; height:14px;"></div>
+
+
+      <!-- ╔══════════════════════════════════════════════════╗ -->
+      <!-- ║  ROWS 3+4+5 — INTERIOR BLOCK                    ║ -->
+      <!-- ╚══════════════════════════════════════════════════╝ -->
+
+      <!-- C1 R3+R4+R5: West structural / fire exit -->
+      <div class="stair-block" style="grid-column:1; grid-row:3/6; font-size:0.44rem;">
+        <div style="font-size:1rem;opacity:0.5;position:relative;z-index:1;">🔥</div>
+        <div class="stair-lbl" style="position:relative;z-index:1;">Fire<br>Exit</div>
+      </div>
+
+      <!-- ── ROW 3: upper interior ── -->
+
+      <!-- C2 R3: Room 306 -->
+      <div class="room db-room empty-state" id="room-306" data-room="306" onclick="openModal('306')" style="grid-column:2; grid-row:3;">
+        <div class="room-num">306</div>
+        <div class="room-name-label">Room 306</div>
+        <div class="user-chips" id="chips-306"></div>
+      </div>
+
+      <!-- C3 R3+R4+R5: Stair shaft block (spans 3 interior rows) -->
+      <div class="shaft-col" style="grid-column:3; grid-row:3/6;">
+        <div style="font-family:var(--mono);font-size:0.44rem;color:#5a6480;text-transform:uppercase;letter-spacing:0.8px;writing-mode:vertical-rl;transform:rotate(180deg);position:relative;z-index:1;">Stair Shaft</div>
+      </div>
+
+      <!-- C4 R3+R4+R5: Inner Stair L shaft (continues through interior) -->
+      <div class="shaft-col" style="grid-column:4; grid-row:3/6;">
+        <div style="font-size:1rem;opacity:0.4;position:relative;z-index:1;">⬜</div>
+      </div>
+
+      <!-- C5 R3: Room 302 -->
+      <div class="room db-room empty-state" id="room-302" data-room="302" onclick="openModal('302')" style="grid-column:5; grid-row:3;">
+        <div class="room-num">302</div>
+        <div class="room-name-label">Room 302</div>
+        <div class="user-chips" id="chips-302"></div>
+      </div>
+
+      <!-- C6 R3: Room 309 -->
+      <div class="room db-room empty-state" id="room-309" data-room="309" onclick="openModal('309')" style="grid-column:6; grid-row:3;">
+        <div class="room-num">309</div>
+        <div class="room-name-label">Room 309</div>
+        <div class="user-chips" id="chips-309"></div>
+      </div>
+
+      <!-- C7 R3: Room 311 -->
+      <div class="room db-room empty-state" id="room-311" data-room="311" onclick="openModal('311')" style="grid-column:7; grid-row:3;">
+        <div class="room-num">311</div>
+        <div class="room-name-label">Room 311</div>
+        <div class="user-chips" id="chips-311"></div>
+      </div>
+
+      <!-- C8 R3+R4: Room 313 (taller — spans upper+mid rows) -->
+      <div class="room db-room empty-state" id="room-313" data-room="313" onclick="openModal('313')" style="grid-column:8; grid-row:3/5;">
+        <div class="room-num">313</div>
+        <div class="room-name-label">Room 313</div>
+        <div class="user-chips" id="chips-313"></div>
+      </div>
+
+      <!-- C9 R3: Room 319 -->
+      <div class="room db-room empty-state" id="room-319" data-room="319" onclick="openModal('319')" style="grid-column:9; grid-row:3;">
+        <div class="room-num">319</div>
+        <div class="room-name-label">Room 319</div>
+        <div class="user-chips" id="chips-319"></div>
+      </div>
+
+
+      <!-- ── ROW 4: middle / storage ── -->
+
+      <!-- C2 R4: Room 301 -->
+      <div class="room db-room empty-state" id="room-301" data-room="301" onclick="openModal('301')" style="grid-column:2; grid-row:4;">
+        <div class="room-num">301</div>
+        <div class="room-name-label">Room 301</div>
+        <div class="user-chips" id="chips-301"></div>
+      </div>
+
+      <!-- C5 R4: Small shaft / connector between 302 and 334 -->
+      <div class="mini-shaft" style="grid-column:5; grid-row:4;">
+        <span>Shaft</span>
+      </div>
+
+      <!-- C6+C7 R4: Under-Floor Storage (spans 2 columns) -->
+      <div class="storage-zone" style="grid-column:6/8; grid-row:4;">
+        <span>Under-Floor Storage</span>
+      </div>
+
+      <!-- C9 R4: Small shaft between 319 and 321 -->
+      <div class="mini-shaft" style="grid-column:9; grid-row:4;">
+        <span>Shaft</span>
+      </div>
+
+
+      <!-- ── ROW 5: lower interior ── -->
+
+      <!-- C2 R5: Room 337 -->
+      <div class="room db-room empty-state" id="room-337" data-room="337" onclick="openModal('337')" style="grid-column:2; grid-row:5;">
+        <div class="room-num">337</div>
+        <div class="room-name-label">Room 337</div>
+        <div class="user-chips" id="chips-337"></div>
+      </div>
+
+      <!-- C5 R5: Room 334 -->
+      <div class="room db-room empty-state" id="room-334" data-room="334" onclick="openModal('334')" style="grid-column:5; grid-row:5;">
+        <div class="room-num">334</div>
+        <div class="room-name-label">Room 334</div>
+        <div class="user-chips" id="chips-334"></div>
+      </div>
+
+      <!-- C6 R5: Room 331 -->
+      <div class="room db-room empty-state" id="room-331" data-room="331" onclick="openModal('331')" style="grid-column:6; grid-row:5;">
+        <div class="room-num">331</div>
+        <div class="room-name-label">Room 331</div>
+        <div class="user-chips" id="chips-331"></div>
+      </div>
+
+      <!-- C7 R5: Room 329 -->
+      <div class="room db-room empty-state" id="room-329" data-room="329" onclick="openModal('329')" style="grid-column:7; grid-row:5;">
+        <div class="room-num">329</div>
+        <div class="room-name-label">Room 329</div>
+        <div class="user-chips" id="chips-329"></div>
+      </div>
+
+      <!-- C8 R5: Room 328 (below 313; service shaft is its left border) -->
+      <div class="room db-room empty-state" id="room-328" data-room="328" onclick="openModal('328')" style="grid-column:8; grid-row:5; border-left:3px dashed #9aA4b8;">
+        <div style="position:absolute;top:3px;left:-1px;font-family:var(--mono);font-size:0.38rem;color:#8090a8;text-transform:uppercase;writing-mode:vertical-rl;letter-spacing:0.5px;opacity:0.7;">Svc Shaft</div>
+        <div class="room-num" style="padding-left:8px;">328</div>
+        <div class="room-name-label" style="padding-left:8px;">Room 328</div>
+        <div class="user-chips" id="chips-328" style="padding-left:8px;"></div>
+      </div>
+
+      <!-- C9 R5: Room 321 -->
+      <div class="room db-room empty-state" id="room-321" data-room="321" onclick="openModal('321')" style="grid-column:9; grid-row:5;">
+        <div class="room-num">321</div>
+        <div class="room-name-label">Room 321</div>
+        <div class="user-chips" id="chips-321"></div>
+      </div>
+
+
+      <!-- ╔══════════════════════════════════════════════════╗ -->
+      <!-- ║  ROW 6 — BOTTOM HORIZONTAL CORRIDOR             ║ -->
+      <!-- ╚══════════════════════════════════════════════════╝ -->
+      <div class="corr-h" data-label="South Corridor" style="grid-column:1/10; grid-row:6; height:14px;"></div>
+
+
+      <!-- ╔══════════════════════════════════════════════════╗ -->
+      <!-- ║  ROW 7 — SOUTH FACE ROOMS                       ║ -->
+      <!-- ╚══════════════════════════════════════════════════╝ -->
+
+      <!-- C1 R6+R7: SW Corner — Room 336 -->
+      <div class="room db-room empty-state" id="room-336" data-room="336" onclick="openModal('336')"
+           style="grid-column:1; grid-row:6/8; margin:3px; border-radius:6px; min-height:0; padding:5px 4px; justify-content:flex-start; align-items:flex-start;">
+        <div class="room-num" style="font-size:0.78rem;">336</div>
+        <div class="room-name-label">SW<br>Corner</div>
+        <div class="user-chips" id="chips-336"></div>
+      </div>
+
+      <!-- C2 R7: Room 335 -->
+      <div class="room db-room empty-state" id="room-335" data-room="335" onclick="openModal('335')" style="grid-column:2; grid-row:7;">
+        <div class="room-num">335</div>
+        <div class="room-name-label">Room 335</div>
+        <div class="user-chips" id="chips-335"></div>
+      </div>
+
+      <!-- C3 R7: Room 333 -->
+      <div class="room db-room empty-state" id="room-333" data-room="333" onclick="openModal('333')" style="grid-column:3; grid-row:7;">
+        <div class="room-num">333</div>
+        <div class="room-name-label">Room 333</div>
+        <div class="user-chips" id="chips-333"></div>
+      </div>
+
+      <!-- C4 R7: Inner Staircase L (bottom indicator) -->
+      <div class="stair-block" style="grid-column:4; grid-row:7;">
+        <div class="stair-ico">⬜</div>
+        <div class="stair-lbl">Stair</div>
+      </div>
+
+      <!-- C5 R7: Room 332 -->
+      <div class="room db-room empty-state" id="room-332" data-room="332" onclick="openModal('332')" style="grid-column:5; grid-row:7;">
+        <div class="room-num">332</div>
+        <div class="room-name-label">Room 332</div>
+        <div class="user-chips" id="chips-332"></div>
+      </div>
+
+      <!-- C6 R7: Room 330 -->
+      <div class="room db-room empty-state" id="room-330" data-room="330" onclick="openModal('330')" style="grid-column:6; grid-row:7;">
+        <div class="room-num">330</div>
+        <div class="room-name-label">Room 330</div>
+        <div class="user-chips" id="chips-330"></div>
+      </div>
+
+      <!-- C7+C8 R7: Service zone (Staircase + Washroom + Open Area A) -->
+      <div class="service-zone" style="grid-column:7/9; grid-row:7;">
+        <div class="sz-stair">
+          <span>🪜</span>
+          <div class="sz-stair-lbl">Stair</div>
+        </div>
+        <div class="sz-wc">
+          <span>🚻</span>
+          <div style="font-family:var(--mono);font-size:0.42rem;color:#5a6480;text-transform:uppercase;letter-spacing:0.5px;">WR</div>
+        </div>
+        <div class="sz-open">
+          <span>Open<br>Area A</span>
+        </div>
+      </div>
+
+      <!-- C9 R7: Room 326 -->
+      <div class="room db-room empty-state" id="room-326" data-room="326" onclick="openModal('326')" style="grid-column:9; grid-row:7;">
+        <div class="room-num">326</div>
+        <div class="room-name-label">Room 326</div>
+        <div class="user-chips" id="chips-326"></div>
+      </div>
+
+    </div><!-- end .fp -->
+
+    <!-- Legend -->
+    <div class="legend">
+      <div class="leg"><div class="leg-box occ"></div> Occupied</div>
+      <div class="leg"><div class="leg-box emp"></div> Empty (mapped)</div>
+      <div class="leg"><div class="leg-box stat"></div> Structural</div>
+    </div>
+
+  </div><!-- end .building -->
+</div>
+
+<!-- Modal -->
+<div class="overlay" id="overlay" onclick="onBg(event)">
+  <div class="modal">
+    <div class="modal-head">
+      <div>
+        <div class="m-room" id="mRoom">—</div>
+        <div class="m-sub" id="mSub">3rd Floor · Shivaji Bhavan</div>
+      </div>
+      <button class="m-close" onclick="closeModal()">✕</button>
+    </div>
+    <hr class="m-hr">
+    <div class="m-list" id="mList"></div>
+  </div>
+</div>
+
+<script>
+  /* ── All trackable room numbers for this floor ── */
+  const DB_ROOMS = [
+    '301','302','303','304','305','306','307','309','310','311','313','314',
+    '316','317','319','320','321','322','323','324','326',
+    '328','329','330','331','332','333','334','335','336','337'
+  ];
+
+  let locationMap = {};
+  let allRooms    = [];
+  let socket      = null;
+
+  /* ── Helpers ── */
+  function timeAgo(ts){
+    if(!ts) return '—';
+    // PostgreSQL TIMESTAMP (no timezone) comes back as "2026-03-07 11:21:14.829885"
+    // with no timezone marker. Both server and DB run UTC, so we append Z to
+    // force correct UTC parsing — otherwise the browser treats it as local time
+    // and shows a 5h30m offset for IST users.
+    let s = String(ts).trim().replace(' ', 'T');
+    if(!s.endsWith('Z') && !s.includes('+') && !s.match(/[-+]\d{2}:\d{2}$/)) s += 'Z';
+    const d = Math.floor((Date.now() - new Date(s)) / 1000);
+    if(d < 5)   return 'just now';
+    if(d < 60)  return d + 's ago';
+    if(d < 3600) return Math.floor(d/60) + 'm ago';
+    return Math.floor(d/3600) + 'h ago';
+  }
+  function initials(uid){ return uid.substring(0,2).toUpperCase(); }
+
+  /* ── Match room by name or embedded 3-digit number ── */
+  function usersInRoom(roomNum){
+    if(locationMap[roomNum]) return locationMap[roomNum];
+    // fallback: search by embedded number in room_name
+    for(const [key,arr] of Object.entries(locationMap)){
+      const m=key.match(/\b(\d{3})\b/);
+      if(m && m[1]===roomNum) return arr;
+    }
+    return [];
+  }
+
+  /* ── Update a single room card ── */
+  function updateRoomCard(roomNum){
+    const el=document.getElementById('room-'+roomNum);
+    if(!el) return;
+    const users=usersInRoom(roomNum);
+    const occ=users.length>0;
+    const chips=document.getElementById('chips-'+roomNum);
+
+    el.className=el.className.replace(/occupied-state|empty-state/g,'').trim();
+    el.classList.add(occ?'occupied-state':'empty-state');
+
+    let badge=el.querySelector('.count-badge');
+    if(occ){
+      if(!badge){ badge=document.createElement('div'); badge.className='count-badge'; el.appendChild(badge); }
+      badge.textContent=users.length;
+    } else {
+      if(badge) badge.remove();
     }
 
-    /* Render grid */
-    function renderGrid(users) {
-      const grid = document.getElementById('usersGrid');
+    if(chips){
+      const MAX=2;
+      chips.innerHTML=occ
+        ? users.slice(0,MAX).map(u=>`<div class="chip">${u.user_id}</div>`).join('')
+          +(users.length>MAX?`<div class="more-text">+${users.length-MAX} more</div>`:'')
+        : '';
+    }
+  }
 
-      if (users.length === 0) {
-        grid.innerHTML = `
-          <div class="empty-state">
-            <span class="empty-icon">📡</span>
-            <h3>No users detected</h3>
-            <p>Waiting for app check-ins...</p>
+  /* ── Modal ── */
+  function openModal(roomNum){
+    const users=usersInRoom(roomNum);
+    document.getElementById('mRoom').textContent='Room '+roomNum;
+    const list=document.getElementById('mList');
+    if(!users.length){
+      list.innerHTML=`<div class="m-empty"><span class="m-empty-ico">🚪</span>This room is currently empty</div>`;
+    } else {
+      list.innerHTML=users.map(u=>`
+        <div class="m-row">
+          <div class="m-av">${initials(u.user_id)}</div>
+          <div>
+            <div class="m-name">${u.user_id}</div>
+            <div class="m-time">Last seen ${timeAgo(u.last_seen)}</div>
           </div>
-        `;
-        return;
+        </div>`).join('');
+    }
+    document.getElementById('overlay').classList.add('open');
+  }
+  function onBg(e){ if(e.target===document.getElementById('overlay')) closeModal(); }
+  function closeModal(){ document.getElementById('overlay').classList.remove('open'); }
+
+  /* ── Build locationMap from API response ── */
+  function applyUsers(users){
+    locationMap={};
+    users.forEach(u=>{
+      const name=u.room_name||'';
+      if(!locationMap[name]) locationMap[name]=[];
+      locationMap[name].push(u);
+      // also key by embedded 3-digit number
+      const m=name.match(/\b(\d{3})\b/);
+      if(m && m[1]!==name){
+        if(!locationMap[m[1]]) locationMap[m[1]]=[];
+        if(!locationMap[m[1]].find(x=>x.user_id===u.user_id)) locationMap[m[1]].push(u);
       }
+    });
+  }
 
-      grid.innerHTML = users.map(buildCard).join('');
+  /* ── Fetch from API ── */
+  async function fetchData(){
+    try{
+      const [r1,r2]=await Promise.all([fetch('/api/rooms'),fetch('/api/all-locations')]);
+      const rd=await r1.json(), ld=await r2.json();
+      if(rd.success) allRooms=rd.rooms;
+      if(ld.success) applyUsers(ld.users);
+
+      DB_ROOMS.forEach(updateRoomCard);
+
+      const totalPeople=Object.values(locationMap).reduce((s,a)=>s+a.length,0);
+      const occRooms=DB_ROOMS.filter(r=>usersInRoom(r).length>0).length;
+      document.getElementById('sPeople').textContent=totalPeople;
+      document.getElementById('sOcc').textContent=occRooms;
+      document.getElementById('sTotal').textContent=allRooms.length||DB_ROOMS.length;
+      document.getElementById('lastUpdated').textContent='// updated '+new Date().toLocaleTimeString();
+      document.getElementById('liveDot').className='live-dot';
+      document.getElementById('liveText').textContent='LIVE';
+    } catch(err){
+      console.error(err);
+      document.getElementById('liveDot').className='live-dot err';
+      document.getElementById('liveText').textContent='ERROR';
     }
+  }
 
-    /* Filter cards by search */
-    function filterCards() {
-      const query = document.getElementById('searchInput').value.toLowerCase();
-      const filtered = allUsers.filter(u =>
-        u.user_id.toLowerCase().includes(query) ||
-        u.room_name.toLowerCase().includes(query)
-      );
-      renderGrid(filtered);
+  /* ── Socket.io for instant updates ── */
+  function startSocket(){
+    try{
+      socket=io({transports:['websocket'],reconnectionDelay:2000});
+      socket.on('connect',()=>{ document.getElementById('liveDot').className='live-dot'; });
+      socket.on('disconnect',()=>{ document.getElementById('liveDot').className='live-dot err'; });
+      socket.on('location-update',data=>{
+        /* Remove user from every room first (they moved) */
+        for(const key of Object.keys(locationMap)){
+          locationMap[key]=locationMap[key].filter(u=>u.user_id!==data.user_id);
+        }
+        /* Insert into new room, keyed both ways */
+        const room=data.room_name||'';
+        if(!locationMap[room]) locationMap[room]=[];
+        locationMap[room].push(data);
+        const m=room.match(/\b(\d{3})\b/);
+        if(m && m[1]!==room){
+          if(!locationMap[m[1]]) locationMap[m[1]]=[];
+          locationMap[m[1]].push(data);
+        }
+        DB_ROOMS.forEach(updateRoomCard);
+        const tp=Object.values(locationMap).flat()
+          .filter((u,i,a)=>a.findIndex(x=>x.user_id===u.user_id)===i).length;
+        const oc=DB_ROOMS.filter(r=>usersInRoom(r).length>0).length;
+        document.getElementById('sPeople').textContent=tp;
+        document.getElementById('sOcc').textContent=oc;
+      });
+    } catch(e){
+      console.warn('Socket.io unavailable, falling back to polling');
     }
+  }
 
-    /* Fetch from API */
-    async function fetchLocations() {
-      const dot = document.getElementById('statusDot');
-      const statusText = document.getElementById('statusText');
-      const errorBanner = document.getElementById('errorBanner');
+  /* ════════════════════════════════════════════
+     FIND-A-PERSON SEARCH
+     ════════════════════════════════════════════ */
+  let highlightedRoomEl = null;   // currently pulsing room card
+  let highlightTimer    = null;   // auto-clear timeout
 
-      try {
-        const res = await fetch('/api/all-locations');
-        const data = await res.json();
+  const searchInput    = document.getElementById('searchInput');
+  const searchDropdown = document.getElementById('searchDropdown');
+  const searchBanner   = document.getElementById('searchBanner');
+  const searchClear    = document.getElementById('searchClear');
 
-        if (!data.success) throw new Error('API error');
-
-        allUsers = data.users;
-
-        /* Update stats */
-        document.getElementById('statUsers').textContent = data.count;
-        const uniqueRooms = new Set(data.users.map(u => u.room_name)).size;
-        document.getElementById('statRooms').textContent = uniqueRooms;
-
-        /* Update timestamp */
-        const now = new Date().toLocaleTimeString();
-        document.getElementById('lastUpdated').textContent = `Last updated: ${now}`;
-
-        /* Status — online */
-        dot.className = 'pulse-dot';
-        statusText.textContent = 'LIVE';
-        errorBanner.style.display = 'none';
-
-        /* Render */
-        filterCards();
-
-      } catch (err) {
-        console.error('Fetch error:', err);
-        dot.className = 'pulse-dot offline';
-        statusText.textContent = 'ERROR';
-        errorBanner.style.display = 'block';
+  /* ── Build a flat list of every known user from locationMap ── */
+  function getAllUsers(){
+    const seen = new Set();
+    const out  = [];
+    for(const [roomKey, users] of Object.entries(locationMap)){
+      /* Only iterate over numeric-keyed entries to avoid duplicates */
+      if(!/^\d{3}$/.test(roomKey) && !roomKey.match(/^\d{3}$/)) {
+        /* it's a room_name string key — use it */
+      }
+      for(const u of users){
+        if(!seen.has(u.user_id)){
+          seen.add(u.user_id);
+          out.push(u);
+        }
       }
     }
+    return out;
+  }
 
-    /* Init */
-    fetchLocations();
-    setInterval(fetchLocations, 8000);
-  </script>
+  /* ── Find which room number a user is in (for scrolling) ── */
+  function roomNumForUser(u){
+    const name = u.room_name || '';
+    /* Direct match: name is exactly '303' */
+    if(document.getElementById('room-' + name)) return name;
+    /* Embedded match: name is 'Room 303' etc */
+    const m = name.match(/\b(\d{3})\b/);
+    if(m && document.getElementById('room-' + m[1])) return m[1];
+    /* Search locationMap keys */
+    for(const [key, arr] of Object.entries(locationMap)){
+      if(arr.find(x => x.user_id === u.user_id)){
+        const k2 = key.match(/\b(\d{3})\b/);
+        if(k2 && document.getElementById('room-' + k2[1])) return k2[1];
+        if(document.getElementById('room-' + key)) return key;
+      }
+    }
+    return null;
+  }
 
+  /* ── Highlight (pulse) a room card and scroll to it ── */
+  function highlightRoom(roomNum){
+    /* Clear any previous highlight */
+    if(highlightedRoomEl){
+      highlightedRoomEl.classList.remove('room-highlight');
+      highlightedRoomEl = null;
+    }
+    clearTimeout(highlightTimer);
+
+    const el = document.getElementById('room-' + roomNum);
+    if(!el) return;
+
+    highlightedRoomEl = el;
+    el.classList.add('room-highlight');
+    el.scrollIntoView({ behavior:'smooth', block:'center', inline:'center' });
+
+    /* Auto-remove pulse after 6 seconds */
+    highlightTimer = setTimeout(()=>{
+      el.classList.remove('room-highlight');
+      highlightedRoomEl = null;
+    }, 6000);
+  }
+
+  /* ── Show the result banner ── */
+  function showBanner(user, roomNum){
+    const name = user.room_name || roomNum || '?';
+    searchBanner.className = 'search-result-banner found';
+    searchBanner.innerHTML =
+      '<span class="srb-icon">📍</span>' +
+      '<span class="srb-text"><strong>' + escHtml(user.user_id) + '</strong>' +
+        ' is in <strong>Room ' + escHtml(roomNum||name) + '</strong>' +
+        ' &nbsp;·&nbsp; ' + timeAgo(user.last_seen) + '</span>' +
+      '<button class="srb-goto" onclick="highlightRoom(\'' + escHtml(roomNum) + '\')">Go →</button>';
+  }
+
+  function showNotFound(query){
+    searchBanner.className = 'search-result-banner notfound';
+    searchBanner.innerHTML =
+      '<span class="srb-icon">🚫</span>' +
+      '<span class="srb-text"><strong>' + escHtml(query) + '</strong> is not on this floor right now</span>';
+  }
+
+  function hideBanner(){
+    searchBanner.className = 'search-result-banner';
+    searchBanner.innerHTML = '';
+  }
+
+  /* ── Render the dropdown suggestions ── */
+  function renderDropdown(query){
+    const q = query.trim().toLowerCase();
+    searchDropdown.innerHTML = '';
+
+    if(!q){ searchDropdown.classList.remove('open'); return; }
+
+    const all = getAllUsers();
+    const matches = all.filter(u => u.user_id.toLowerCase().includes(q));
+
+    if(!matches.length){
+      searchDropdown.innerHTML = '<div class="sd-empty">No one found matching "' + escHtml(query) + '"</div>';
+      searchDropdown.classList.add('open');
+      return;
+    }
+
+    /* Cap at 6 suggestions */
+    matches.slice(0, 6).forEach(u => {
+      const roomNum = roomNumForUser(u);
+      const roomLabel = roomNum ? 'Room ' + roomNum : (u.room_name || '?');
+      const div = document.createElement('div');
+      div.className = 'sd-item';
+      div.innerHTML =
+        '<div class="sd-av">' + escHtml(initials(u.user_id)) + '</div>' +
+        '<div class="sd-info">' +
+          '<div class="sd-name">' + escHtml(u.user_id) + '</div>' +
+          '<div class="sd-room">' + escHtml(roomLabel) + '</div>' +
+        '</div>' +
+        '<div class="sd-time">' + timeAgo(u.last_seen) + '</div>';
+
+      div.addEventListener('mousedown', function(e){
+        /* mousedown fires before blur; prevent input blur hiding dropdown */
+        e.preventDefault();
+        selectUser(u, roomNum);
+      });
+      searchDropdown.appendChild(div);
+    });
+
+    searchDropdown.classList.add('open');
+  }
+
+  /* ── Called when user picks someone (click or Enter) ── */
+  function selectUser(user, roomNum){
+    searchInput.value = user.user_id;
+    searchClear.classList.add('visible');
+    searchDropdown.classList.remove('open');
+
+    if(roomNum){
+      showBanner(user, roomNum);
+      highlightRoom(roomNum);
+    } else {
+      showNotFound(user.user_id);
+    }
+  }
+
+  /* ── Clear everything ── */
+  function clearSearch(){
+    searchInput.value = '';
+    searchClear.classList.remove('visible');
+    searchDropdown.classList.remove('open');
+    hideBanner();
+    if(highlightedRoomEl){
+      highlightedRoomEl.classList.remove('room-highlight');
+      highlightedRoomEl = null;
+    }
+    clearTimeout(highlightTimer);
+    searchInput.focus();
+  }
+
+  /* ── Sanitise strings inserted into innerHTML ── */
+  function escHtml(s){
+    return String(s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  /* ── Input events ── */
+  searchInput.addEventListener('input', function(){
+    const q = this.value;
+    searchClear.classList.toggle('visible', q.length > 0);
+    hideBanner();
+    renderDropdown(q);
+  });
+
+  searchInput.addEventListener('keydown', function(e){
+    if(e.key === 'Escape'){ clearSearch(); return; }
+    if(e.key === 'Enter'){
+      const q = this.value.trim();
+      if(!q) return;
+      searchDropdown.classList.remove('open');
+      /* Find best match */
+      const all = getAllUsers();
+      /* Exact match first, then partial */
+      const exact   = all.find(u => u.user_id.toLowerCase() === q.toLowerCase());
+      const partial = all.find(u => u.user_id.toLowerCase().includes(q.toLowerCase()));
+      const user    = exact || partial;
+      if(user){
+        const roomNum = roomNumForUser(user);
+        selectUser(user, roomNum);
+      } else {
+        hideBanner();
+        showNotFound(q);
+      }
+    }
+  });
+
+  /* Close dropdown when clicking outside */
+  document.addEventListener('click', function(e){
+    if(!document.getElementById('searchWrap').contains(e.target)){
+      searchDropdown.classList.remove('open');
+    }
+  });
+
+
+  startSocket();
+  setInterval(()=>{ if(!socket||!socket.connected) fetchData(); }, 8000);
+
+  /* ── Visibility API ── */
+  document.addEventListener('visibilitychange',()=>{ if(!document.hidden) fetchData(); });
+</script>
 </body>
 </html>

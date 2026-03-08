@@ -20,4 +20,14 @@ router.get("/localizations", (req, res) => {
   res.render("localizations");
 });
 
+router.get("/localizations-3d", (req, res) => {
+  res.render("localizations_3d");
+});
+
+router.get("/localizations-iso", (req, res) => {
+  res.render("localizations_iso")
+});
+
+  
+
 export default router;

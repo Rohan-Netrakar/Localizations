@@ -2,12 +2,20 @@
 // Main entry point of the Indoor Localization application
 
 import express from "express";
+import { createServer } from "http";          // ← NEW
+import { Server } from "socket.io";           // ← NEW
 import path from "path";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 
 dotenv.config();
 const app = express();
+const server = createServer(app);             // ← NEW: wrap express in http server
+const io = new Server(server, {              // ← NEW: attach socket.io
+  cors: { origin: process.env.CORS_ORIGIN || "http://localhost:3000" },
+  transports: ["websocket", "polling"],
+});
+app.set("io", io);                            // ← NEW: make io accessible in routes
 
 /* -------------------------------------------------
    Fix for __dirname in ES modules
@@ -57,13 +65,27 @@ app.use("/", formApiRoutes);
 app.use("/", apkRoutes);
 
 /* -------------------------------------------------
+   Socket.io connection log                         ← NEW
+-------------------------------------------------- */
+
+io.on("connection", (socket) => {
+  console.log(`🔌 Socket connected: ${socket.id}`);
+  socket.on("disconnect", () => {
+    console.log(`🔌 Socket disconnected: ${socket.id}`);
+  });
+});
+
+/* -------------------------------------------------
    Server Start
 -------------------------------------------------- */
-console.log("DB:", process.env.DB_NAME);
+if (process.env.NODE_ENV !== "production") {
+  console.log("DB:", process.env.DB_NAME);
+}
 
 const PORT = process.env.PORT || 3000;
 
-app.listen(PORT, () => {
+// NOTE: `server.listen` instead of `app.listen`   ← CHANGED
+server.listen(PORT, () => {
   console.log(`✅ Server running on port ${PORT}`);
 
   // Load keep-alive ONLY in production (Render)

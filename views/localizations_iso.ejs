@@ -1,0 +1,1127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#020617">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>IndoorLocate — Live Map</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="/socket.io/socket.io.js"></script>
+<style>
+/* ═══ RESET ═══ */
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{overflow:hidden;width:100%;height:100%;background:#020617;touch-action:none;
+          -webkit-overflow-scrolling:none;overscroll-behavior:none}
+body{font-family:'Inter',system-ui,sans-serif;color:#f1f5f9}
+
+/* ═══ CANVAS ═══ */
+#base,#anim{position:fixed;inset:0;width:100%;height:100%}
+#base{z-index:1}
+#anim{z-index:2;pointer-events:none}
+
+/* ═══ TOP BAR ═══ */
+#topbar{
+  position:fixed;top:0;left:0;right:0;height:52px;
+  background:rgba(2,6,23,0.92);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  border-bottom:1px solid rgba(255,255,255,0.06);
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 16px;z-index:100;
+}
+.tb-brand{display:flex;align-items:center;gap:8px}
+.tb-logo{font-size:1.05rem;font-weight:700;color:#f8fafc;letter-spacing:-.02em}
+.tb-logo em{color:#3b82f6;font-style:normal}
+.tb-floor-label{
+  font-size:.6rem;font-weight:600;color:#64748b;letter-spacing:.08em;
+  background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);
+  border-radius:4px;padding:2px 7px;
+}
+.tb-right{display:flex;align-items:center;gap:6px}
+.status-pill{
+  display:flex;align-items:center;gap:5px;font-size:.6rem;font-weight:600;
+  letter-spacing:.06em;border-radius:20px;padding:4px 10px;transition:all .3s;
+}
+.status-pill.live{color:#10b981;border:1px solid rgba(16,185,129,.25);background:rgba(16,185,129,.07)}
+.status-pill.sync{color:#f59e0b;border:1px solid rgba(245,158,11,.25);background:rgba(245,158,11,.07)}
+.status-pill.offline{color:#ef4444;border:1px solid rgba(239,68,68,.25);background:rgba(239,68,68,.07)}
+.s-dot{width:5px;height:5px;border-radius:50%;background:currentColor;animation:blink 2s infinite}
+.status-pill.live .s-dot{animation:blink 2s infinite}
+.status-pill.sync .s-dot,.status-pill.offline .s-dot{animation:none}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+.tb-btn{
+  font-size:.58rem;font-weight:500;color:#64748b;letter-spacing:.05em;
+  padding:5px 9px;border:1px solid rgba(255,255,255,0.08);
+  background:rgba(255,255,255,0.04);cursor:pointer;border-radius:5px;
+  transition:all .15s;font-family:inherit;
+}
+.tb-btn:active{color:#f1f5f9;border-color:rgba(255,255,255,.2)}
+
+/* ═══ SEARCH (floating, below topbar) ═══ */
+#search-wrap{
+  position:fixed;top:62px;left:50%;transform:translateX(-50%);
+  z-index:90;display:flex;gap:6px;width:min(280px,88vw);
+}
+#search-input{
+  flex:1;background:rgba(15,23,42,.9);backdrop-filter:blur(16px);
+  border:1px solid rgba(255,255,255,.1);color:#f1f5f9;
+  font-family:'Inter',sans-serif;font-size:.72rem;font-weight:500;
+  padding:8px 12px;border-radius:8px;outline:none;
+  transition:border-color .2s;
+}
+#search-input::placeholder{color:#334155;font-size:.68rem}
+#search-input:focus{border-color:rgba(59,130,246,.5);background:rgba(15,23,42,.97)}
+#search-btn{
+  background:rgba(59,130,246,.15);border:1px solid rgba(59,130,246,.35);
+  color:#60a5fa;font-family:'Inter',sans-serif;font-size:.65rem;font-weight:600;
+  padding:8px 12px;border-radius:8px;cursor:pointer;letter-spacing:.04em;
+  white-space:nowrap;transition:all .15s;
+}
+#search-btn:active{background:rgba(59,130,246,.3)}
+
+/* ═══ STATS ROW (desktop / tablet only) ═══ */
+#stats-row{
+  position:fixed;top:62px;left:16px;
+  display:flex;flex-direction:column;gap:4px;z-index:90;
+}
+@media(max-width:640px){#stats-row{display:none}}
+.stat-chip{
+  background:rgba(15,23,42,.82);backdrop-filter:blur(12px);
+  border:1px solid rgba(255,255,255,.07);border-radius:7px;
+  padding:6px 12px;display:flex;align-items:center;gap:8px;
+}
+.sc-icon{font-size:.9rem;opacity:.7}
+.sc-val{font-size:.95rem;font-weight:700;color:#f1f5f9;line-height:1}
+.sc-lbl{font-size:.5rem;font-weight:500;color:#475569;text-transform:uppercase;letter-spacing:.1em;margin-top:1px}
+
+/* ═══ FLOOR PILL STRIP ═══ */
+#floor-strip{
+  position:fixed;bottom:calc(env(safe-area-inset-bottom) + 8px);
+  left:50%;transform:translateX(-50%);
+  display:flex;align-items:center;gap:4px;z-index:90;
+  background:rgba(15,23,42,.9);backdrop-filter:blur(16px);
+  border:1px solid rgba(255,255,255,.08);border-radius:50px;
+  padding:5px 8px;max-width:calc(100vw - 32px);overflow-x:auto;
+}
+#floor-strip::-webkit-scrollbar{display:none}
+.fl-btn{
+  min-width:38px;height:30px;border-radius:40px;font-size:.62rem;font-weight:600;
+  color:#475569;background:transparent;border:none;cursor:pointer;
+  font-family:'Inter',sans-serif;transition:all .2s;padding:0 6px;
+  display:flex;align-items:center;justify-content:center;gap:3px;
+  white-space:nowrap;
+}
+.fl-btn.on{background:#3b82f6;color:#fff;box-shadow:0 0 12px rgba(59,130,246,.4)}
+.fl-btn.mapped::before{content:'';width:4px;height:4px;border-radius:50%;background:#10b981}
+
+/* ═══ LEGEND (desktop only) ═══ */
+#legend{
+  position:fixed;right:16px;top:50%;transform:translateY(-50%);
+  background:rgba(15,23,42,.82);backdrop-filter:blur(12px);
+  border:1px solid rgba(255,255,255,.07);border-radius:9px;
+  padding:10px 12px;z-index:90;
+}
+@media(max-width:640px){#legend{display:none}}
+.leg-item{display:flex;align-items:center;gap:8px;font-size:.55rem;font-weight:500;
+          color:#475569;line-height:2.4;letter-spacing:.03em}
+.leg-dot{width:9px;height:9px;border-radius:2px;flex-shrink:0}
+
+/* ═══ ROOM INFO BOTTOM SHEET ═══ */
+#sheet{
+  position:fixed;left:0;right:0;bottom:0;
+  background:rgba(10,18,35,.97);backdrop-filter:blur(24px);
+  border-top:1px solid rgba(255,255,255,.08);border-radius:18px 18px 0 0;
+  padding:0 20px calc(env(safe-area-inset-bottom) + 20px);
+  z-index:200;transform:translateY(100%);transition:transform .32s cubic-bezier(.34,1.3,.64,1);
+  max-height:70vh;overflow-y:auto;
+}
+#sheet.open{transform:translateY(0)}
+.sheet-handle{width:36px;height:3.5px;background:rgba(255,255,255,.12);
+              border-radius:2px;margin:12px auto 16px}
+.sh-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px}
+.sh-id{font-size:2rem;font-weight:700;color:#f1f5f9;letter-spacing:-.03em;line-height:1}
+.sh-close{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.1);
+          color:#64748b;width:30px;height:30px;border-radius:50%;cursor:pointer;
+          font-size:.8rem;display:flex;align-items:center;justify-content:center;
+          flex-shrink:0;font-family:inherit;transition:all .15s}
+.sh-close:active{color:#f1f5f9;background:rgba(255,255,255,.15)}
+.sh-name{font-size:.72rem;font-weight:500;color:#475569;margin-bottom:14px}
+.sh-divider{border:none;border-top:1px solid rgba(255,255,255,.06);margin-bottom:14px}
+.sh-status{font-size:.7rem;font-weight:600;color:#64748b;letter-spacing:.04em;margin-bottom:12px;
+           display:flex;align-items:center;gap:6px}
+.sh-status-dot{width:7px;height:7px;border-radius:50%;background:currentColor;flex-shrink:0}
+.sh-status.occupied{color:#3b82f6}
+.sh-status.empty{color:#475569}
+.sh-status.locked{color:#ef4444}
+.sh-status.lift{color:#f59e0b}
+.people-list{display:flex;flex-direction:column;gap:10px}
+.p-row{display:flex;align-items:center;gap:12px;padding:8px 12px;
+       background:rgba(255,255,255,.03);border-radius:9px;border:1px solid rgba(255,255,255,.05)}
+.p-av{width:36px;height:36px;border-radius:9px;flex-shrink:0;
+      display:flex;align-items:center;justify-content:center;
+      font-size:.7rem;font-weight:700;letter-spacing:.02em}
+.p-info{flex:1;min-width:0}
+.p-name{font-size:.82rem;font-weight:600;color:#e2e8f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.p-meta{font-size:.58rem;font-weight:500;color:#475569;margin-top:2px;display:flex;gap:8px}
+.p-empty{text-align:center;padding:24px 0;color:#1e293b}
+.p-empty-icon{font-size:2rem;display:block;margin-bottom:8px;opacity:.4}
+.p-empty-text{font-size:.72rem;font-weight:500}
+.p-locked{display:flex;align-items:center;justify-content:center;gap:8px;
+          padding:16px 0;color:#7f1d1d;font-size:.72rem;font-weight:600;letter-spacing:.05em}
+
+/* ═══ MOBILE STATS (shown above sheet handle) ═══ */
+#mobile-stats{
+  position:fixed;top:62px;right:12px;
+  display:none;flex-direction:column;gap:3px;z-index:90;
+}
+@media(max-width:640px){#mobile-stats{display:flex}}
+.ms-chip{
+  background:rgba(15,23,42,.88);backdrop-filter:blur(12px);
+  border:1px solid rgba(255,255,255,.07);border-radius:6px;
+  padding:4px 9px;font-size:.6rem;font-weight:600;color:#94a3b8;
+  display:flex;align-items:center;gap:5px;
+}
+.ms-val{color:#f1f5f9;font-size:.78rem}
+
+/* ═══ LOADING ═══ */
+#loading{
+  position:fixed;inset:0;background:#020617;z-index:300;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;
+  transition:opacity .4s;
+}
+#loading.fade{opacity:0;pointer-events:none}
+.ld-icon{font-size:2.4rem;animation:spin 1.5s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.ld-text{font-size:.65rem;font-weight:600;color:#334155;letter-spacing:.2em}
+
+/* ═══ TOAST ═══ */
+#toast{
+  position:fixed;top:72px;left:50%;transform:translateX(-50%) translateY(-6px);
+  background:rgba(15,23,42,.97);border:1px solid rgba(255,255,255,.1);backdrop-filter:blur(16px);
+  border-radius:8px;padding:8px 16px;font-size:.62rem;font-weight:600;color:#94a3b8;
+  letter-spacing:.06em;z-index:400;opacity:0;transition:all .22s;pointer-events:none;
+  white-space:nowrap;
+}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+/* ═══ HINT ═══ */
+#hint{
+  position:fixed;bottom:60px;left:50%;transform:translateX(-50%);
+  font-size:.52rem;font-weight:500;color:#1e293b;letter-spacing:.15em;
+  text-align:center;line-height:2.4;z-index:50;pointer-events:none;
+  transition:opacity 2s;
+}
+</style>
+</head>
+<body>
+
+<!-- LOADING -->
+<div id="loading">
+  <div class="ld-icon">🔵</div>
+  <div class="ld-text">LOADING LIVE MAP...</div>
+</div>
+
+<!-- CANVAS LAYERS -->
+<canvas id="base"></canvas>
+<canvas id="anim"></canvas>
+
+<!-- TOP BAR -->
+<div id="topbar">
+  <div class="tb-brand">
+    <div class="tb-logo">Indoor<em>Locate</em></div>
+    <div class="tb-floor-label" id="floor-label">3F · MAPPED</div>
+  </div>
+  <div class="tb-right">
+    <div class="status-pill live" id="status-pill">
+      <div class="s-dot"></div><span id="status-text">LIVE</span>
+    </div>
+    <button class="tb-btn" onclick="location.href='/'">Home</button>
+    <button class="tb-btn" onclick="location.href='/localizations'">2D</button>
+  </div>
+</div>
+
+<!-- SEARCH -->
+<div id="search-wrap">
+  <input id="search-input" type="text" placeholder="Search room..." maxlength="6"
+         autocomplete="off" autocorrect="off" spellcheck="false" inputmode="search">
+  <button id="search-btn" onclick="doSearch()">Find</button>
+</div>
+
+<!-- DESKTOP STATS -->
+<div id="stats-row">
+  <div class="stat-chip"><span class="sc-icon">👥</span><div><div class="sc-val" id="d-people">—</div><div class="sc-lbl">People</div></div></div>
+  <div class="stat-chip"><span class="sc-icon">🏢</span><div><div class="sc-val" id="d-rooms">—</div><div class="sc-lbl">Occupied</div></div></div>
+  <div class="stat-chip"><span class="sc-icon">🗂️</span><div><div class="sc-val" id="d-total">—</div><div class="sc-lbl">Total Rooms</div></div></div>
+</div>
+
+<!-- MOBILE STATS -->
+<div id="mobile-stats">
+  <div class="ms-chip">👥 <span class="ms-val" id="m-people">—</span></div>
+  <div class="ms-chip">🏢 <span class="ms-val" id="m-rooms">—</span></div>
+</div>
+
+<!-- FLOOR STRIP -->
+<div id="floor-strip"></div>
+
+<!-- LEGEND (desktop) -->
+<div id="legend">
+  <div class="leg-item"><div class="leg-dot" style="background:#1d4ed8;box-shadow:0 0 6px rgba(59,130,246,.5)"></div>Occupied</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#0f172a;border:1px solid rgba(30,60,100,.5)"></div>Empty</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#7f1d1d;border:1px solid rgba(220,38,38,.4)"></div>Locked</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#3b2005;border:1px solid rgba(245,158,11,.5)"></div>Elevator</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#0f172a;border:1px solid rgba(15,40,80,.5)"></div>Stairs</div>
+</div>
+
+<!-- BOTTOM SHEET -->
+<div id="sheet">
+  <div class="sheet-handle"></div>
+  <div class="sh-header">
+    <div><div class="sh-id" id="sh-id">—</div><div class="sh-name" id="sh-name">—</div></div>
+    <button class="sh-close" onclick="closeSheet()">✕</button>
+  </div>
+  <hr class="sh-divider">
+  <div class="sh-status empty" id="sh-status"><div class="sh-status-dot"></div><span id="sh-status-text">—</span></div>
+  <div class="people-list" id="sh-people"></div>
+</div>
+
+<!-- TOAST -->
+<div id="toast"></div>
+
+<!-- HINT -->
+<div id="hint">PINCH TO ZOOM · DRAG TO PAN · TAP A ROOM</div>
+
+<script>
+'use strict';
+
+/* ═══════════════════════════════════════════
+   1. BUILDING LAYOUT DATA — 3F Shivaji Bhavan
+   STRICT GRID: all rooms w=3, d=3. Step=4 (3+1gap).
+   Columns: WEST=0, CL=6, LIFT=9, CR=12, EAST=18
+   Corridors: W-COR x=3(w=3), E-COR x=15(w=3)
+   Rows z: NorthRow=0, HCor=3, A=5,B=9,C=13,D=17,E=21,F=25,G=29,H=33
+═══════════════════════════════════════════ */
+const TOTAL_F = 6, MAPPED_F = 3;
+
+const ROOMS = [
+  /* ── NORTH ROW (z=0, d=3) — evenly spaced w=3 each ── */
+  {id:'316', name:'Room 316',   x:0,  z:0, w:3, d:3},
+  {id:'318', name:'Room 318',   x:3,  z:0, w:3, d:3},
+  {id:'320', name:'Room 320',   x:6,  z:0, w:3, d:3},
+  {id:'322', name:'Room 322',   x:12, z:0, w:3, d:3},
+  {id:'323', name:'Room 323',   x:15, z:0, w:3, d:3},
+  {id:'324', name:'Room 324',   x:18, z:0, w:3, d:3},
+
+  /* ── WEST COL (x=0, w=3) — rows A,D,E,F,G,H ── */
+  {id:'314', name:'Room 314',   x:0,  z:5,  w:3, d:3},
+  {id:'310', name:'Room 310',   x:0,  z:17, w:3, d:3},
+  {id:'307', name:'Room 307',   x:0,  z:21, w:3, d:3},
+  {id:'305', name:'Room 305',   x:0,  z:25, w:3, d:3},
+  {id:'304', name:'Room 304',   x:0,  z:29, w:3, d:3},
+  {id:'303', name:'Room 303',   x:0,  z:33, w:3, d:3},
+
+  /* ── CENTRE-LEFT COL (x=6, w=3) — rows A–H ── */
+  {id:'319', name:'Room 319',   x:6,  z:5,  w:3, d:3},
+  {id:'313', name:'Room 313',   x:6,  z:9,  w:3, d:3},
+  {id:'311', name:'Room 311',   x:6,  z:13, w:3, d:3},
+  {id:'309', name:'Room 309',   x:6,  z:17, w:3, d:3},
+  {id:'302', name:'Room 302',   x:6,  z:21, w:3, d:3},
+  {id:'306', name:'Room 306',   x:6,  z:25, w:3, d:3},
+  {id:'301', name:'Room 301',   x:6,  z:29, w:3, d:3},
+  {id:'337', name:'Room 337',   x:6,  z:33, w:3, d:3},
+
+  /* ── CENTRE-RIGHT COL (x=12, w=3) — rows A–D ── */
+  {id:'321', name:'Room 321',   x:12, z:5,  w:3, d:3},
+  {id:'328', name:'Room 328',   x:12, z:9,  w:3, d:3},
+  {id:'331', name:'Room 331',   x:12, z:13, w:3, d:3},
+  {id:'334', name:'Room 334',   x:12, z:17, w:3, d:3},
+
+  /* ── EAST COL (x=18, w=3) — rows A,D,E,F,G,H ── */
+  {id:'326', name:'Room 326',   x:18, z:5,  w:3, d:3},
+  {id:'330', name:'Room 330',   x:18, z:17, w:3, d:3},
+  {id:'332', name:'Room 332',   x:18, z:21, w:3, d:3},
+  {id:'333', name:'Room 333',   x:18, z:25, w:3, d:3},
+  {id:'335', name:'Room 335',   x:18, z:29, w:3, d:3},
+  {id:'336', name:'Room 336',   x:18, z:33, w:3, d:3},
+];
+
+const LOCKED = [
+  {id:'WL-T', name:"Girls' Washroom",  x:0,  z:9,  w:3, d:3},
+  {id:'WL-G', name:"Girls' WC (mid)",  x:0,  z:13, w:3, d:3},
+  {id:'WR-T', name:"Boys' Washroom",   x:18, z:9,  w:3, d:3},
+  {id:'WR-B', name:"Boys' WC (mid)",   x:18, z:13, w:3, d:3},
+];
+
+const ELEVS = [
+  {id:'LFT1', name:'Elevator (Top)',    x:9, z:5,  w:3, d:3},
+  {id:'LFT2', name:'Elevator (Bottom)', x:9, z:21, w:3, d:3},
+];
+
+const STAIRS = [
+  {x:-2, z:0,  w:2, d:3},   // NW
+  {x:21, z:0,  w:2, d:3},   // NE
+  {x:-2, z:13, w:2, d:3},   // W-mid
+  {x:21, z:13, w:2, d:3},   // E-mid
+  {x:-2, z:25, w:2, d:3},   // SW
+  {x:21, z:25, w:2, d:3},   // SE
+];
+
+/* Corridor floor tiles — all aligned to grid */
+const TILES = [
+  {x:0,  z:3,  w:21, d:2},  // North horizontal corridor
+  {x:3,  z:5,  w:3,  d:31}, // West vertical corridor  (x=3..6)
+  {x:9,  z:9,  w:3,  d:10}, // Centre gap between elevators (x=9..12, z=9..19)
+  {x:15, z:5,  w:3,  d:31}, // East vertical corridor (x=15..18)
+];
+
+/* ═══════════════════════════════════════════
+   2. PALETTE — physically-based shading
+   3 faces: top(light), leftFace(mid), rightFace(dark)
+═══════════════════════════════════════════ */
+const PAL = {
+  empty:{
+    topA:'#1e2e4a', topB:'#172440',   // visible steel-blue
+    lfA:'#162238', lfB:'#0f192c',
+    rfA:'#121c30', rfB:'#0b1424',
+    edge:'rgba(70,120,210,.6)', lbl:'#5b8fd4', sh:true,
+  },
+  occ:{
+    topA:'#2563eb', topB:'#1e40af',   // bright blue
+    lfA:'#1a3890', lfB:'#0f2260',
+    rfA:'#142e78', rfB:'#0a1c50',
+    edge:'rgba(99,160,255,.98)', lbl:'#bfdbfe', sh:true,
+  },
+  locked:{
+    topA:'#5a0e0e', topB:'#3d0808',   // dark red
+    lfA:'#4a0a0a', lfB:'#2c0606',
+    rfA:'#3c0808', rfB:'#220404',
+    edge:'rgba(239,68,68,.75)', lbl:'#fca5a5', sh:false,
+  },
+  lift:{
+    topA:'#5c2a04', topB:'#3d1a02',   // warm amber
+    lfA:'#4a2003', lfB:'#2e1202',
+    rfA:'#3a1a02', rfB:'#220e01',
+    edge:'rgba(251,170,30,.85)', lbl:'#fde68a', sh:false,
+  },
+  stair:{
+    topA:'#1a2535', topB:'#111a26',   // slightly visible cool-grey
+    lfA:'#131c2a', lfB:'#0c121c',
+    rfA:'#0f1620', rfB:'#080e16',
+    edge:'rgba(50,90,150,.5)', lbl:'#2a4a70', sh:false,
+  },
+  ghost:{
+    topA:'#060c18', topB:'#040810',
+    lfA:'#050a14', lfB:'#03060c',
+    rfA:'#04070f', rfB:'#02050a',
+    edge:'rgba(12,35,70,.2)', lbl:'#0e2040', sh:false,
+  },
+};
+
+const AVCOLS=[
+  ['#3b82f6','#1d4ed8'],['#ef4444','#b91c1c'],
+  ['#10b981','#047857'],['#a855f7','#7e22ce'],
+  ['#f59e0b','#b45309'],['#06b6d4','#0e7490'],
+];
+
+/* ═══════════════════════════════════════════
+   3. STATE
+═══════════════════════════════════════════ */
+let occ      = {};   // roomId → [{user_id, last_seen, floor, ...}]
+let roomMeta = {};   // roomId → db row
+let curFloor = MAPPED_F;
+
+let W=0, H=0;
+let OX=0, OY=0, scale=1;
+let dirty=true;
+let lastFrame=0;
+const FPS=32;
+
+let hitRegions=[];
+let hoverId=null;
+
+/* ISO constants */
+const TW=18, TH=9, WH=24;
+
+function iso(wx,wy,wz){
+  return{
+    x: OX + (wx-wz)*TW*scale,
+    y: OY + (wx+wz)*TH*scale - wy*WH*scale,
+  };
+}
+
+/* ═══════════════════════════════════════════
+   4. DRAW HELPERS
+═══════════════════════════════════════════ */
+function box(ctx, bx,bz,bw,bd,bh, pal, label){
+  const t0=iso(bx,   bh,bz),    t1=iso(bx+bw,bh,bz);
+  const t2=iso(bx+bw,bh,bz+bd), t3=iso(bx,   bh,bz+bd);
+  const b0=iso(bx,   0, bz),    b1=iso(bx+bw,0, bz);
+  const b2=iso(bx+bw,0, bz+bd), b3=iso(bx,   0, bz+bd);
+
+  /* Drop shadow */
+  if(pal.sh && scale>0.35){
+    const so=2.5*scale;
+    ctx.save(); ctx.globalAlpha=0.18;
+    ctx.fillStyle='#000';
+    ctx.beginPath();
+    ctx.moveTo(b0.x+so,b0.y+so+so*.5); ctx.lineTo(b1.x+so,b1.y+so*.5);
+    ctx.lineTo(b2.x+so,b2.y-so*.5);    ctx.lineTo(b3.x+so,b3.y);
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+
+  /* Left face (SW) */
+  let gL=ctx.createLinearGradient(t3.x,t3.y,b3.x,b3.y);
+  gL.addColorStop(0,pal.lfA); gL.addColorStop(1,pal.lfB);
+  ctx.beginPath();
+  ctx.moveTo(t3.x,t3.y); ctx.lineTo(t2.x,t2.y); ctx.lineTo(b2.x,b2.y); ctx.lineTo(b3.x,b3.y);
+  ctx.closePath(); ctx.fillStyle=gL; ctx.fill();
+
+  /* Right face (SE) */
+  let gR=ctx.createLinearGradient(t1.x,t1.y,b1.x,b1.y);
+  gR.addColorStop(0,pal.rfA); gR.addColorStop(1,pal.rfB);
+  ctx.beginPath();
+  ctx.moveTo(t1.x,t1.y); ctx.lineTo(t2.x,t2.y); ctx.lineTo(b2.x,b2.y); ctx.lineTo(b1.x,b1.y);
+  ctx.closePath(); ctx.fillStyle=gR; ctx.fill();
+
+  /* Top face (radial gradient — centre brighter) */
+  const fcx=(t0.x+t1.x+t2.x+t3.x)/4, fcy=(t0.y+t1.y+t2.y+t3.y)/4;
+  const frad=Math.max(bw,bd)*TW*scale*0.85;
+  let gT=ctx.createRadialGradient(fcx,fcy,0,fcx,fcy,frad);
+  gT.addColorStop(0,pal.topA); gT.addColorStop(1,pal.topB);
+  ctx.beginPath();
+  ctx.moveTo(t0.x,t0.y); ctx.lineTo(t1.x,t1.y); ctx.lineTo(t2.x,t2.y); ctx.lineTo(t3.x,t3.y);
+  ctx.closePath(); ctx.fillStyle=gT; ctx.fill();
+
+  /* Window details on faces (only larger rooms at decent scale) */
+  if(scale>0.62 && bh>=1 && (bw>=3||bd>=3)){
+    const wmat=ctx.createLinearGradient(0,t3.y,0,b3.y);
+    wmat.addColorStop(0,'rgba(255,255,255,.03)'); wmat.addColorStop(1,'rgba(0,0,0,0)');
+    // Left face window strip
+    const wh=0.45*WH*scale, wy2=t3.y+0.2*WH*scale;
+    const wx0=t3.x+(t2.x-t3.x)*0.2, wy0=t3.y+(t2.y-t3.y)*0.2+0.15*WH*scale;
+    const wx1=t3.x+(t2.x-t3.x)*0.8, wy1=t3.y+(t2.y-t3.y)*0.8+0.15*WH*scale;
+    ctx.beginPath();
+    ctx.moveTo(wx0,wy0); ctx.lineTo(wx1,wy1);
+    ctx.lineTo(wx1,wy1+wh); ctx.lineTo(wx0,wy0+wh);
+    ctx.closePath();
+    ctx.fillStyle='rgba(100,180,255,.04)'; ctx.fill();
+    ctx.strokeStyle='rgba(100,180,255,.07)'; ctx.lineWidth=0.6; ctx.stroke();
+  }
+
+  /* Edges */
+  const lw=Math.max(.4, .8*scale);
+  ctx.strokeStyle=pal.edge; ctx.lineWidth=lw;
+  ctx.beginPath();
+  // top face outline
+  ctx.moveTo(t0.x,t0.y); ctx.lineTo(t1.x,t1.y); ctx.lineTo(t2.x,t2.y); ctx.lineTo(t3.x,t3.y); ctx.closePath();
+  // vertical edges
+  ctx.moveTo(t3.x,t3.y); ctx.lineTo(b3.x,b3.y);
+  ctx.moveTo(t2.x,t2.y); ctx.lineTo(b2.x,b2.y);
+  ctx.moveTo(t1.x,t1.y); ctx.lineTo(b1.x,b1.y);
+  // bottom visible edges
+  ctx.moveTo(b3.x,b3.y); ctx.lineTo(b2.x,b2.y); ctx.lineTo(b1.x,b1.y);
+  ctx.stroke();
+
+  /* Label on top */
+  if(label && scale>0.32){
+    const fs=Math.max(5.5,Math.min(11, 9*scale));
+    ctx.font=`600 ${fs}px Inter,sans-serif`;
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillStyle=pal.lbl;
+    ctx.fillText(label, fcx, fcy);
+  }
+
+  return{t0,t1,t2,t3,b0,b1,b2,b3};
+}
+
+function tile(ctx, bx,bz,bw,bd){
+  const p0=iso(bx,0,bz), p1=iso(bx+bw,0,bz), p2=iso(bx+bw,0,bz+bd), p3=iso(bx,0,bz+bd);
+  ctx.beginPath();
+  ctx.moveTo(p0.x,p0.y); ctx.lineTo(p1.x,p1.y); ctx.lineTo(p2.x,p2.y); ctx.lineTo(p3.x,p3.y);
+  ctx.closePath();
+  const g=ctx.createLinearGradient(p0.x,p0.y,p2.x,p2.y);
+  g.addColorStop(0,'#060d1a'); g.addColorStop(1,'#030812');
+  ctx.fillStyle=g; ctx.fill();
+  ctx.strokeStyle='rgba(15,40,80,.25)'; ctx.lineWidth=.5; ctx.stroke();
+}
+
+/* ═══════════════════════════════════════════
+   5. GLOW & DOTS (anim layer)
+═══════════════════════════════════════════ */
+function glow(ctx, bx,bz,bw,bd,bh, pulse){
+  const t0=iso(bx,bh,bz), t1=iso(bx+bw,bh,bz);
+  const t2=iso(bx+bw,bh,bz+bd), t3=iso(bx,bh,bz+bd);
+  const b1=iso(bx+bw,0,bz), b2=iso(bx+bw,0,bz+bd), b3=iso(bx,0,bz+bd);
+
+  ctx.save();
+  ctx.shadowColor='#3b82f6';
+  ctx.shadowBlur=16+pulse*12;
+  ctx.strokeStyle=`rgba(59,130,246,${0.4+pulse*0.45})`;
+  ctx.lineWidth=1.4*scale;
+  ctx.beginPath();
+  ctx.moveTo(t0.x,t0.y); ctx.lineTo(t1.x,t1.y); ctx.lineTo(t2.x,t2.y); ctx.lineTo(t3.x,t3.y); ctx.closePath();
+  ctx.moveTo(t3.x,t3.y); ctx.lineTo(b3.x,b3.y); ctx.lineTo(b2.x,b2.y); ctx.lineTo(t2.x,t2.y);
+  ctx.moveTo(t1.x,t1.y); ctx.lineTo(b1.x,b1.y); ctx.lineTo(b2.x,b2.y);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function dots(ctx, bx,bz,bw,bd,bh, count){
+  if(scale<0.35||count===0) return;
+  const t0=iso(bx,bh+.06,bz), t1=iso(bx+bw,bh+.06,bz);
+  const t2=iso(bx+bw,bh+.06,bz+bd), t3=iso(bx,bh+.06,bz+bd);
+  const cx=(t0.x+t1.x+t2.x+t3.x)/4, cy=(t0.y+t1.y+t2.y+t3.y)/4;
+  const spread=count>1?4.5*scale:0;
+  const n=Math.min(count,6);
+  for(let i=0;i<n;i++){
+    const a=(i/n)*Math.PI*2-Math.PI/2;
+    const px=cx+Math.cos(a)*spread, py=cy+Math.sin(a)*spread*.5;
+    const dr=2.8*scale;
+    ctx.beginPath(); ctx.arc(px,py,dr,0,Math.PI*2);
+    ctx.fillStyle=AVCOLS[i%AVCOLS.length][0]; ctx.fill();
+    ctx.strokeStyle='rgba(0,0,0,.6)'; ctx.lineWidth=.5; ctx.stroke();
+  }
+  if(count>6 && scale>0.5){
+    ctx.font=`600 ${Math.max(5,5.5*scale)}px Inter,sans-serif`;
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillStyle='rgba(255,255,255,.35)';
+    ctx.fillText('+' + (count-6), cx, cy+7*scale);
+  }
+}
+
+function badge(ctx, bx,bz,bw,bd,bh, count){
+  if(scale<0.42||count===0) return;
+  const t1=iso(bx+bw, bh, bz);
+  const r=5.5*scale;
+  ctx.beginPath(); ctx.arc(t1.x,t1.y-2*scale,r,0,Math.PI*2);
+  ctx.fillStyle='#2563eb'; ctx.fill();
+  ctx.strokeStyle='rgba(0,0,0,.5)'; ctx.lineWidth=.8; ctx.stroke();
+  ctx.font=`700 ${Math.max(5,5.5*scale)}px Inter,sans-serif`;
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillStyle='#fff'; ctx.fillText(count,t1.x,t1.y-2*scale);
+}
+
+function hoverHighlight(ctx, bx,bz,bw,bd,bh){
+  const t0=iso(bx,bh,bz), t1=iso(bx+bw,bh,bz);
+  const t2=iso(bx+bw,bh,bz+bd), t3=iso(bx,bh,bz+bd);
+  ctx.save();
+  ctx.shadowColor='rgba(255,255,255,.15)'; ctx.shadowBlur=8;
+  ctx.strokeStyle='rgba(255,255,255,.22)'; ctx.lineWidth=1.5*scale;
+  ctx.beginPath();
+  ctx.moveTo(t0.x,t0.y); ctx.lineTo(t1.x,t1.y); ctx.lineTo(t2.x,t2.y); ctx.lineTo(t3.x,t3.y); ctx.closePath();
+  ctx.stroke();
+  ctx.restore();
+}
+
+/* ═══════════════════════════════════════════
+   6. BASE LAYER (static geometry)
+═══════════════════════════════════════════ */
+let BASE = null;
+let baseDirty = true;
+
+function rebuildBase(){
+  if(!BASE) BASE=document.createElement('canvas');
+  BASE.width=W; BASE.height=H;
+  const ctx=BASE.getContext('2d');
+  ctx.clearRect(0,0,W,H);
+  hitRegions=[];
+
+  /* Ground */
+  const g0=iso(-3,0,-2), g1=iso(24,0,-2), g2=iso(24,0,38), g3=iso(-3,0,38);
+  ctx.beginPath();
+  ctx.moveTo(g0.x,g0.y); ctx.lineTo(g1.x,g1.y); ctx.lineTo(g2.x,g2.y); ctx.lineTo(g3.x,g3.y);
+  ctx.closePath(); ctx.fillStyle='#020915'; ctx.fill();
+
+  /* Corridor tiles */
+  TILES.forEach(t=>tile(ctx,t.x,t.z,t.w,t.d));
+
+  /* Depth sort: far items first */
+  const all=[
+    ...STAIRS.map(s=>({...s,type:'stair'})),
+    ...ROOMS.map(r=>({...r,type:'room'})),
+    ...LOCKED.map(l=>({...l,type:'locked'})),
+    ...ELEVS.map(e=>({...e,type:'lift'})),
+  ].sort((a,b)=>(b.x+b.w/2+b.z+b.d/2)-(a.x+a.w/2+a.z+a.d/2));
+
+  all.forEach(obj=>{
+    const bh = 1.0; // all rooms uniform height
+    const isOcc = (occ[obj.id]||[]).length>0;
+    const isMapped = curFloor===MAPPED_F;
+
+    let p;
+    if(!isMapped)          p = PAL.ghost;
+    else if(obj.type==='stair')  p = PAL.stair;
+    else if(obj.type==='locked') p = PAL.locked;
+    else if(obj.type==='lift')   p = PAL.lift;
+    else if(isOcc)               p = PAL.occ;
+    else                         p = PAL.empty;
+
+    const pts = box(ctx, obj.x, obj.z, obj.w, obj.d, bh, p,
+      obj.type==='stair'?'▲' : obj.type==='lift'?'⬆' : obj.id);
+
+    /* Lock cross on washrooms */
+    if(obj.type==='locked' && scale>0.4){
+      const{t0,t1,t2,t3}=pts;
+      ctx.strokeStyle='rgba(239,68,68,.4)'; ctx.lineWidth=.9*scale;
+      ctx.beginPath();
+      ctx.moveTo(t0.x,t0.y); ctx.lineTo(t2.x,t2.y);
+      ctx.moveTo(t1.x,t1.y); ctx.lineTo(t3.x,t3.y);
+      ctx.stroke();
+    }
+
+    /* Stair diagonal texture */
+    if(obj.type==='stair' && scale>0.4){
+      const{t0,t1,t3,t2}=pts;
+      ctx.strokeStyle='rgba(20,50,90,.5)'; ctx.lineWidth=.5;
+      for(let i=1;i<4;i++){
+        const f=i/4;
+        const pa={x:t0.x+(t1.x-t0.x)*f, y:t0.y+(t1.y-t0.y)*f};
+        const pb={x:t3.x+(t2.x-t3.x)*f, y:t3.y+(t2.y-t3.y)*f};
+        ctx.beginPath(); ctx.moveTo(pa.x,pa.y); ctx.lineTo(pb.x,pb.y); ctx.stroke();
+      }
+    }
+
+    /* Badge count on base (doesn't pulse) */
+    if(isOcc && obj.type==='room')
+      badge(ctx, obj.x,obj.z,obj.w,obj.d,bh, (occ[obj.id]||[]).length);
+
+    /* Register hit */
+    const{t0,t1,t2,t3,b1,b2,b3}=pts;
+    hitRegions.push({
+      obj, depth:obj.x+obj.w/2+obj.z+obj.d/2,
+      top:[t0,t1,t2,t3],
+      lf:[t3,t2,b2,b3],
+      rf:[t1,t2,b2,b1],
+    });
+  });
+
+  baseDirty=false;
+}
+
+/* ═══════════════════════════════════════════
+   7. ANIM LAYER (glow + hover — every frame)
+═══════════════════════════════════════════ */
+let baseCanvas, baseCtx, animCanvas, animCtx;
+
+function drawAnim(ts){
+  animCtx.clearRect(0,0,W,H);
+  if(curFloor!==MAPPED_F) return;
+  const pulse=0.5+0.5*Math.sin(ts*0.0025);
+
+  ROOMS.forEach(r=>{
+    const o=occ[r.id]||[];
+    if(!o.length && r.id!==hoverId) return;
+    const bh=r.small?0.6:1.0;
+    if(o.length>0) glow(animCtx, r.x,r.z,r.w,r.d,bh, pulse);
+    if(o.length>0) dots(animCtx, r.x,r.z,r.w,r.d,bh, o.length);
+    if(r.id===hoverId) hoverHighlight(animCtx, r.x,r.z,r.w,r.d,bh);
+  });
+  ELEVS.forEach(e=>{
+    if(e.id===hoverId) hoverHighlight(animCtx, e.x,e.z,e.w,e.d,1.0);
+  });
+}
+
+/* ═══════════════════════════════════════════
+   8. MAIN LOOP
+═══════════════════════════════════════════ */
+function loop(ts){
+  requestAnimationFrame(loop);
+  if(ts-lastFrame < 1000/FPS) return;
+  lastFrame=ts;
+
+  if(baseDirty){
+    rebuildBase();
+    baseCtx.clearRect(0,0,W,H);
+    baseCtx.drawImage(BASE,0,0);
+  }
+  drawAnim(ts);
+}
+
+/* ═══════════════════════════════════════════
+   9. HIT TESTING
+═══════════════════════════════════════════ */
+function pip(px,py,pts){
+  let inside=false;
+  for(let i=0,j=pts.length-1;i<pts.length;j=i++){
+    const xi=pts[i].x,yi=pts[i].y,xj=pts[j].x,yj=pts[j].y;
+    if(((yi>py)!=(yj>py))&&(px<(xj-xi)*(py-yi)/(yj-yi)+xi)) inside=!inside;
+  }
+  return inside;
+}
+function hitTest(sx,sy){
+  for(let i=hitRegions.length-1;i>=0;i--){
+    const h=hitRegions[i];
+    if(pip(sx,sy,h.top)||pip(sx,sy,h.lf)||pip(sx,sy,h.rf)) return h.obj;
+  }
+  return null;
+}
+
+/* ═══════════════════════════════════════════
+   10. LIVE DATA (WebSocket primary, polling fallback)
+═══════════════════════════════════════════ */
+let socket=null, pollTimer=null, hidden=false;
+let lastHash='';
+
+function applyUsers(users){
+  occ={};
+  users.forEach(u=>{
+    const name = u.room_name || '';
+    /* Primary key: exact room_name (e.g. "303") */
+    if(!occ[name]) occ[name]=[];
+    occ[name].push(u);
+    /* Fallback: if room_name contains a 3-digit number, also key by that number
+       so "EEE Measurements Lab 303" still lights up room id "303" */
+    const m = name.match(/\b(\d{3})\b/);
+    if(m && m[1] !== name){
+      const num = m[1];
+      if(!occ[num]) occ[num]=[];
+      if(!occ[num].find(x=>x.user_id===u.user_id)) occ[num].push(u);
+    }
+  });
+  const p=users.length;
+  const o=Object.keys(occ).filter(k=>occ[k].length>0).length;
+  document.getElementById('d-people').textContent=p;
+  document.getElementById('d-rooms').textContent=o;
+  document.getElementById('m-people').textContent=p;
+  document.getElementById('m-rooms').textContent=o;
+  baseDirty=true;
+}
+
+function setStatus(s){
+  const el=document.getElementById('status-pill');
+  const tx=document.getElementById('status-text');
+  el.className='status-pill '+s;
+  tx.textContent=s==='live'?'LIVE':s==='sync'?'SYNC':'OFFLINE';
+}
+
+async function fetchAll(){
+  if(hidden) return;
+  setStatus('sync');
+  try{
+    const[r1,r2]=await Promise.all([fetch('/api/rooms'),fetch('/api/all-locations')]);
+    if(!r1.ok||!r2.ok) throw new Error('HTTP '+r1.status);
+    let rd,ld;
+    try{rd=await r1.json();ld=await r2.json();}
+    catch(e){throw new Error('Invalid JSON');}
+    if(!rd.success||!ld.success) throw new Error('API error');
+
+    /* Cache: skip redraw if data unchanged */
+    const newHash=JSON.stringify(ld.users.map(u=>u.user_id+u.room_name+u.last_seen));
+    if(newHash!==lastHash){ lastHash=newHash; applyUsers(ld.users); }
+
+    roomMeta={};
+    (rd.rooms||[]).forEach(r=>{roomMeta[r.room_name]=r;});
+    document.getElementById('d-total').textContent=(rd.rooms||[]).length;
+
+    setStatus('live');
+  }catch(e){
+    console.error('Fetch error:',e.message);
+    setStatus('offline');
+  }
+}
+
+function startSocket(){
+  try{
+    socket=io({transports:['websocket'],reconnectionDelay:2000,reconnectionDelayMax:10000});
+    socket.on('connect',()=>{
+      setStatus('live');
+      clearInterval(pollTimer); pollTimer=null;
+    });
+    socket.on('disconnect',()=>{
+      setStatus('offline');
+      /* Fallback polling when socket disconnects */
+      if(!pollTimer) pollTimer=setInterval(fetchAll,5000);
+    });
+    socket.on('location-update', data=>{
+      if(hidden) return;
+      const room = data.room_name || '';
+      if(!occ[room]) occ[room]=[];
+      const idx=occ[room].findIndex(u=>u.user_id===data.user_id);
+      if(idx>=0) occ[room][idx]=data; else occ[room].push(data);
+      /* Also key by embedded 3-digit room number if room_name is a long name */
+      const m = room.match(/\b(\d{3})\b/);
+      if(m && m[1] !== room){
+        const num = m[1];
+        if(!occ[num]) occ[num]=[];
+        const ni=occ[num].findIndex(u=>u.user_id===data.user_id);
+        if(ni>=0) occ[num][ni]=data; else occ[num].push(data);
+      }
+      /* Update person counts */
+      const p=Object.values(occ).reduce((s,a)=>s+a.length,0);
+      const o=Object.keys(occ).filter(k=>occ[k].length>0).length;
+      document.getElementById('d-people').textContent=p;
+      document.getElementById('d-rooms').textContent=o;
+      document.getElementById('m-people').textContent=p;
+      document.getElementById('m-rooms').textContent=o;
+      baseDirty=true;
+    });
+    socket.on('connect_error',()=>setStatus('offline'));
+  }catch(e){
+    /* Socket.io not available — polling only */
+    pollTimer=setInterval(fetchAll,4000);
+  }
+}
+
+/* Visibility API — pause when tab hidden */
+document.addEventListener('visibilitychange',()=>{
+  hidden=document.hidden;
+  if(!hidden) fetchAll();  // immediate refresh when returning
+});
+
+/* ═══════════════════════════════════════════
+   11. SHEET (bottom panel)
+═══════════════════════════════════════════ */
+function tAgo(ts){
+  if(!ts) return '—';
+  let s = String(ts).trim().replace(' ','T');
+  if(!s.endsWith('Z') && !s.includes('+') && !s.match(/[-+]\d{2}:\d{2}$/)) s += 'Z';
+  const d=Math.floor((Date.now()-new Date(s))/1000);
+  return d<5?'just now':d<60?d+'s ago':d<3600?Math.floor(d/60)+'m ago':Math.floor(d/3600)+'h ago';
+}
+function fmtId(uid){
+  if(!uid) return '—';
+  return uid.length>16?uid.slice(0,15)+'…':uid;
+}
+
+function openSheet(obj){
+  document.getElementById('sh-id').textContent=obj.id;
+  const meta=roomMeta[obj.id];
+  document.getElementById('sh-name').textContent=obj.name||(meta&&meta.room_name)||obj.id;
+  const stEl=document.getElementById('sh-status');
+  const peEl=document.getElementById('sh-people');
+
+  if(obj.type==='locked'){
+    stEl.className='sh-status locked';
+    document.getElementById('sh-status-text').textContent='Restricted — No Entry';
+    peEl.innerHTML='<div class="p-locked">🔒 &nbsp;ACCESS NOT PERMITTED</div>';
+  } else if(obj.type==='lift'){
+    stEl.className='sh-status lift';
+    document.getElementById('sh-status-text').textContent='Elevator — Use for floor navigation';
+    peEl.innerHTML='<div class="p-empty"><span class="p-empty-icon">🛗</span><div class="p-empty-text">Select floor from bottom bar</div></div>';
+  } else {
+    const people=occ[obj.id]||[];
+    if(!people.length){
+      stEl.className='sh-status empty';
+      document.getElementById('sh-status-text').textContent='Empty right now';
+      peEl.innerHTML='<div class="p-empty"><span class="p-empty-icon">🚪</span><div class="p-empty-text">No one detected here</div></div>';
+    } else {
+      stEl.className='sh-status occupied';
+      document.getElementById('sh-status-text').textContent=people.length+' person'+(people.length>1?'s':'')+' inside';
+      peEl.innerHTML=people.map((u,i)=>{
+        const col=AVCOLS[i%AVCOLS.length];
+        const initials=(u.user_id||'??').slice(0,2).toUpperCase();
+        return`<div class="p-row">
+          <div class="p-av" style="background:linear-gradient(135deg,${col[0]},${col[1]})">${initials}</div>
+          <div class="p-info">
+            <div class="p-name">${fmtId(u.user_id)}</div>
+            <div class="p-meta">
+              <span>⏱ ${tAgo(u.last_seen)}</span>
+              <span>📍 Floor ${u.floor||MAPPED_F}</span>
+            </div>
+          </div>
+        </div>`;
+      }).join('');
+    }
+  }
+  document.getElementById('sheet').classList.add('open');
+}
+function closeSheet(){
+  document.getElementById('sheet').classList.remove('open');
+}
+
+/* ═══════════════════════════════════════════
+   12. SEARCH
+═══════════════════════════════════════════ */
+function doSearch(){
+  const q=document.getElementById('search-input').value.trim().toUpperCase();
+  if(!q) return;
+  const r=ROOMS.find(x=>x.id.toUpperCase()===q)||ELEVS.find(x=>x.id.toUpperCase()===q);
+  if(!r){showToast('Room not found'); return;}
+  /* Pan to room */
+  const target=iso(r.x+r.w/2, 0, r.z+r.d/2);
+  OX+=W/2-target.x; OY+=H*0.45-target.y;
+  baseDirty=true;
+  openSheet({...r,type:ELEVS.find(e=>e.id===r.id)?'lift':'room'});
+  document.getElementById('search-input').value='';
+  document.getElementById('search-input').blur();
+}
+
+document.addEventListener('DOMContentLoaded',()=>{
+  document.getElementById('search-input').addEventListener('keydown',e=>{
+    if(e.key==='Enter') doSearch();
+  });
+});
+
+/* ═══════════════════════════════════════════
+   13. FLOOR STRIP
+═══════════════════════════════════════════ */
+function buildFloorStrip(){
+  const el=document.getElementById('floor-strip'); el.innerHTML='';
+  const names=['Ground','1F','2F','3F','4F','5F'];
+  for(let f=0;f<TOTAL_F;f++){
+    const b=document.createElement('button');
+    b.className='fl-btn'+(f===curFloor?' on':'')+(f===MAPPED_F?' mapped':'');
+    b.textContent=(f===0?'GF':f+'F')+(f===MAPPED_F?' ●':'');
+    b.title=f===MAPPED_F?'Floor '+f+' — Live Data':'Floor '+f;
+    b.onclick=()=>{
+      curFloor=f;
+      document.getElementById('floor-label').textContent=
+        (f===0?'GF':f+'F')+(f===MAPPED_F?' · MAPPED':'');
+      buildFloorStrip(); baseDirty=true; closeSheet();
+      if(f!==MAPPED_F) showToast('Floor '+(f===0?'GF':f+'F')+' — Not mapped yet');
+    };
+    el.appendChild(b);
+  }
+}
+
+/* ═══════════════════════════════════════════
+   14. TOAST
+═══════════════════════════════════════════ */
+let toastT=null;
+function showToast(msg){
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.classList.add('show');
+  clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'),2200);
+}
+
+/* ═══════════════════════════════════════════
+   15. INPUT
+═══════════════════════════════════════════ */
+function setupInput(){
+  let drag=null, panS={x:0,y:0}, tapS=null, pinch=0;
+
+  baseCanvas.addEventListener('touchstart',e=>{
+    e.preventDefault();
+    const ts=e.touches;
+    if(ts.length===1){
+      drag={x:ts[0].clientX,y:ts[0].clientY};
+      panS={x:OX,y:OY};
+      tapS={x:ts[0].clientX,y:ts[0].clientY,t:Date.now()};
+    }else if(ts.length===2){
+      pinch=Math.hypot(ts[0].clientX-ts[1].clientX,ts[0].clientY-ts[1].clientY);
+      drag=null;
+    }
+  },{passive:false});
+
+  baseCanvas.addEventListener('touchmove',e=>{
+    e.preventDefault();
+    const ts=e.touches;
+    if(ts.length===1&&drag){
+      OX=panS.x+(ts[0].clientX-drag.x);
+      OY=panS.y+(ts[0].clientY-drag.y);
+      baseDirty=true;
+    }else if(ts.length===2&&pinch>0){
+      const d=Math.hypot(ts[0].clientX-ts[1].clientX,ts[0].clientY-ts[1].clientY);
+      const mx=(ts[0].clientX+ts[1].clientX)/2;
+      const my=(ts[0].clientY+ts[1].clientY)/2;
+      const f=d/pinch;
+      const ns=Math.max(.2,Math.min(5,scale*f));
+      OX=mx+(OX-mx)*(ns/scale); OY=my+(OY-my)*(ns/scale);
+      scale=ns; pinch=d; baseDirty=true;
+    }
+  },{passive:false});
+
+  baseCanvas.addEventListener('touchend',e=>{
+    e.preventDefault();
+    if(e.changedTouches.length===1&&tapS&&e.touches.length===0){
+      const ct=e.changedTouches[0];
+      const dx=ct.clientX-tapS.x,dy=ct.clientY-tapS.y,dt=Date.now()-tapS.t;
+      if(Math.abs(dx)<14&&Math.abs(dy)<14&&dt<300){
+        const h=hitTest(ct.clientX,ct.clientY);
+        if(h){
+          const type=LOCKED.find(l=>l.id===h.id)?'locked':ELEVS.find(l=>l.id===h.id)?'lift':'room';
+          openSheet({...h,type});
+        } else closeSheet();
+      }
+    }
+    if(e.touches.length===0){drag=null;tapS=null;pinch=0;}
+  },{passive:false});
+
+  /* Mouse */
+  baseCanvas.addEventListener('mousedown',e=>{
+    drag={x:e.clientX,y:e.clientY}; panS={x:OX,y:OY};
+    tapS={x:e.clientX,y:e.clientY,t:Date.now()};
+  });
+  window.addEventListener('mousemove',e=>{
+    if(!drag){
+      /* Hover */
+      const h=hitTest(e.clientX,e.clientY);
+      const newHov=h?h.id:null;
+      if(newHov!==hoverId){hoverId=newHov; baseCanvas.style.cursor=newHov?'pointer':'default';}
+      return;
+    }
+    OX=panS.x+(e.clientX-drag.x); OY=panS.y+(e.clientY-drag.y); baseDirty=true;
+  });
+  window.addEventListener('mouseup',e=>{
+    if(tapS){
+      const dx=e.clientX-tapS.x,dy=e.clientY-tapS.y,dt=Date.now()-tapS.t;
+      if(Math.abs(dx)<8&&Math.abs(dy)<8&&dt<250){
+        const h=hitTest(e.clientX,e.clientY);
+        if(h){
+          const type=LOCKED.find(l=>l.id===h.id)?'locked':ELEVS.find(l=>l.id===h.id)?'lift':'room';
+          openSheet({...h,type});
+        } else closeSheet();
+      }
+    }
+    drag=null; tapS=null;
+  });
+  baseCanvas.addEventListener('wheel',e=>{
+    e.preventDefault();
+    const f=e.deltaY<0?1.12:.9;
+    const ns=Math.max(.2,Math.min(5,scale*f));
+    OX=e.clientX+(OX-e.clientX)*(ns/scale);
+    OY=e.clientY+(OY-e.clientY)*(ns/scale);
+    scale=ns; baseDirty=true;
+  },{passive:false});
+}
+
+/* ═══════════════════════════════════════════
+   16. RESIZE
+═══════════════════════════════════════════ */
+let inited=false;
+function onResize(){
+  W=baseCanvas.width=animCanvas.width=window.innerWidth;
+  H=baseCanvas.height=animCanvas.height=window.innerHeight;
+  if(!inited){
+    const mob=W<640;
+    scale=mob?0.48:W<1024?0.62:0.74;
+    OX=W*(mob?0.70:0.65); OY=H*(mob?0.13:0.15);
+    inited=true;
+  }
+  baseDirty=true;
+}
+
+/* ═══════════════════════════════════════════
+   17. BOOT
+═══════════════════════════════════════════ */
+window.addEventListener('DOMContentLoaded',async()=>{
+  baseCanvas=document.getElementById('base');
+  animCanvas=document.getElementById('anim');
+  baseCtx=baseCanvas.getContext('2d');
+  animCtx=animCanvas.getContext('2d');
+
+  onResize();
+  window.addEventListener('resize',()=>{inited=false;onResize();});
+
+  buildFloorStrip();
+  setupInput();
+  requestAnimationFrame(loop);
+
+  /* Initial data fetch */
+  await fetchAll();
+  startSocket();
+
+  /* Hide loading */
+  setTimeout(()=>{
+    document.getElementById('loading').classList.add('fade');
+    setTimeout(()=>document.getElementById('loading').style.display='none',450);
+    setTimeout(()=>{const h=document.getElementById('hint');if(h)h.style.opacity='0';},5000);
+  },400);
+
+  /* Periodic poll as safety net (even with sockets) */
+  setInterval(()=>{if(!socket||!socket.connected) fetchAll();},8000);
+});
+</script>
+</body>
+</html>

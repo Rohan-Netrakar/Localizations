@@ -1,32 +1,14 @@
 /**
  * File: bssid.routes.js
  *
- * Overview:
- * --------------------------------------------------
- * Defines API routes for indoor localization using
- * Wi-Fi BSSID (Access Point MAC address).
- *
- * Responsibilities:
- * - Persist room ↔ BSSID mappings in PostgreSQL
- * - Resolve a physical classroom from a detected BSSID
- *
- * Typical Flow:
- * - Admin registers room and its Wi-Fi BSSID(s)
- * - Client/app sends detected BSSID
- * - Backend returns the mapped room name
- *
  * Routes:
- * --------------------------------------------------
- * GET  /api
- *      → Renders admin dashboard for BSSID setup
- *
- * POST /api/register
- *      → Registers a room and associates a BSSID
- *      → Used during initial setup / calibration
- *
- * POST /api/localize
- *      → Resolves room name using detected BSSID
- *      → Used by mobile / IoT / web clients
+ * GET  /api              → Renders BSSID admin dashboard
+ * POST /api/register     → Register room + BSSID (atomic)
+ * POST /api/localize     → Resolve room from BSSID
+ * POST /api/update-location → Update user location via BSSID (socket emit)
+ * GET  /api/all-locations   → All users + current rooms
+ * GET  /api/rooms           → All rooms list
+ * POST /api/update-position → Update user x/z position (socket emit)
  */
 
 import express from "express";
@@ -36,29 +18,19 @@ const router = express.Router();
 
 /* ==================================================
    GET: Render BSSID Dashboard
-   ==================================================
-   Purpose:
-   - Serves the admin UI for managing room–BSSID
-     mappings.
-   - This endpoint only renders the EJS view and
-     does not perform any database operations.
-*/
+================================================== */
 router.get("/api", (req, res) => {
-  res.render("bssidDashboard"); // EJS admin dashboard
+  res.render("bssidDashboard");
 });
 
 /* ==================================================
    POST: Register Room + BSSID
-   ==================================================
-   Purpose:
-   - Creates a new room if it does not exist
-   - Associates a Wi-Fi BSSID with that room
-   - Prevents duplicate BSSID entries
-*/
+   FIX: Atomic INSERT … ON CONFLICT to eliminate
+        the race condition from a separate SELECT+INSERT.
+================================================== */
 router.post("/api/register", async (req, res) => {
   const { room_name, bssid, band, ssid_name } = req.body;
 
-  /* Validate mandatory inputs */
   if (!room_name || !bssid) {
     return res.status(400).json({
       success: false,
@@ -67,33 +39,28 @@ router.post("/api/register", async (req, res) => {
   }
 
   try {
-    /* ------------------------------------------------
-       Step 1: Check whether the room already exists
-       ------------------------------------------------ */
-    const roomCheck = await pool.query(
-      "SELECT id FROM rooms WHERE room_name = $1",
+    /* Atomically upsert the room — no race condition */
+    let roomId;
+    const upsertRoom = await pool.query(
+      `INSERT INTO rooms (room_name)
+       VALUES ($1)
+       ON CONFLICT (room_name) DO NOTHING
+       RETURNING id`,
       [room_name]
     );
 
-    let roomId;
-
-    /* ------------------------------------------------
-       Step 2: Create room if it does not exist
-       ------------------------------------------------ */
-    if (roomCheck.rows.length === 0) {
-      const roomInsert = await pool.query(
-        "INSERT INTO rooms (room_name) VALUES ($1) RETURNING id",
+    if (upsertRoom.rows.length > 0) {
+      roomId = upsertRoom.rows[0].id;
+    } else {
+      /* Room already existed — fetch its id */
+      const existing = await pool.query(
+        "SELECT id FROM rooms WHERE room_name = $1",
         [room_name]
       );
-      roomId = roomInsert.rows[0].id;
-    } else {
-      roomId = roomCheck.rows[0].id;
+      roomId = existing.rows[0].id;
     }
 
-    /* ------------------------------------------------
-       Step 3: Insert BSSID mapping for the room
-       - band and ssid_name are optional metadata
-       ------------------------------------------------ */
+    /* Insert BSSID mapping */
     await pool.query(
       `INSERT INTO room_bssids (room_id, bssid, band, ssid_name)
        VALUES ($1, $2, $3, $4)`,
@@ -106,13 +73,12 @@ router.post("/api/register", async (req, res) => {
     });
 
   } catch (err) {
-    console.error("DB ERROR:", err.message);
+    console.error("DB ERROR /api/register:", err.message);
 
-    /* Handle duplicate BSSID (unique constraint) */
     if (err.code === "23505") {
       return res.status(409).json({
         success: false,
-        message: "BSSID already exists"
+        message: "BSSID already registered"
       });
     }
 
@@ -125,25 +91,16 @@ router.post("/api/register", async (req, res) => {
 
 /* ==================================================
    POST: Localize Room using BSSID
-   ==================================================
-   Purpose:
-   - Determines the physical room based on a
-     detected Wi-Fi BSSID.
-   - Used during real-time indoor localization.
-*/
+   FIX: Return 404 (not 200) when no room is found.
+================================================== */
 router.post("/api/localize", async (req, res) => {
   const { bssid } = req.body;
 
-  /* Validate input */
   if (!bssid) {
-    return res.status(400).json({
-      success: false,
-      message: "bssid is required"
-    });
+    return res.status(400).json({ success: false, message: "bssid is required" });
   }
 
   try {
-    /* Lookup room associated with the given BSSID */
     const result = await pool.query(
       `SELECT r.room_name
        FROM room_bssids rb
@@ -152,37 +109,24 @@ router.post("/api/localize", async (req, res) => {
       [bssid]
     );
 
-    /* No mapping found */
     if (result.rows.length === 0) {
-      return res.json({
-        found: false,
-        message: "Room not found"
-      });
+      return res.status(404).json({ found: false, message: "Room not found for this BSSID" });
     }
 
-    /* Successful localization */
-    return res.json({
-      found: true,
-      room: result.rows[0].room_name
-    });
+    return res.json({ found: true, room: result.rows[0].room_name });
 
   } catch (err) {
-    console.error("DB ERROR:", err.message);
-
-    return res.status(500).json({
-      success: false,
-      message: "Internal server error"
-    });
+    console.error("DB ERROR /api/localize:", err.message);
+    return res.status(500).json({ success: false, message: "Internal server error" });
   }
 });
+
 /* ==================================================
    POST: Update User Location
-   ==================================================
-   Purpose:
-   - Receives userId + bssid from the mobile app
-   - Resolves the room from the BSSID
-   - Upserts the user's current location
-*/
+   - Resolves room from BSSID
+   - Upserts user_locations row
+   - Emits socket "location-update" event
+================================================== */
 router.post("/api/update-location", async (req, res) => {
   const { user_id, bssid } = req.body;
 
@@ -196,7 +140,7 @@ router.post("/api/update-location", async (req, res) => {
   try {
     /* Step 1: Resolve room from BSSID */
     const roomResult = await pool.query(
-      `SELECT rb.room_id, r.room_name
+      `SELECT rb.room_id, r.room_name, r.floor, r.building
        FROM room_bssids rb
        JOIN rooms r ON rb.room_id = r.id
        WHERE rb.bssid = $1`,
@@ -204,15 +148,15 @@ router.post("/api/update-location", async (req, res) => {
     );
 
     if (roomResult.rows.length === 0) {
-      return res.json({
+      return res.status(404).json({
         success: false,
         message: "No room mapped for this BSSID"
       });
     }
 
-    const { room_id, room_name } = roomResult.rows[0];
+    const { room_id, room_name, floor, building } = roomResult.rows[0];
 
-    /* Step 2: Upsert user location */
+    /* Step 2: Upsert user location (insert or update on conflict) */
     await pool.query(
       `INSERT INTO user_locations (user_id, room_id, last_seen)
        VALUES ($1, $2, NOW())
@@ -221,6 +165,18 @@ router.post("/api/update-location", async (req, res) => {
       [user_id, room_id]
     );
 
+    /* Step 3: Push real-time update to all connected browser clients */
+    const io = req.app.get("io");
+    if (io) {
+      io.emit("location-update", {
+        user_id,
+        room_name,
+        floor,
+        building,
+        last_seen: new Date().toISOString(),
+      });
+    }
+
     return res.json({
       success: true,
       message: "Location updated",
@@ -228,30 +184,26 @@ router.post("/api/update-location", async (req, res) => {
     });
 
   } catch (err) {
-    console.error("DB ERROR:", err.message);
-    return res.status(500).json({
-      success: false,
-      message: "Internal server error"
-    });
+    console.error("DB ERROR /api/update-location:", err.message);
+    return res.status(500).json({ success: false, message: "Internal server error" });
   }
 });
 
 /* ==================================================
-   GET: Get All User Locations
-   ==================================================
-   Purpose:
-   - Returns all users and their current room
-   - Used by the website to display real-time locations
-*/
+   GET: All User Locations
+   Returns every user with their current room details.
+   Used by the 2D and 2.5D map views.
+================================================== */
 router.get("/api/all-locations", async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT 
-         ul.user_id,
-         r.room_name,
-         r.floor,
-         r.building,
-         ul.last_seen
+      `SELECT ul.user_id,
+              r.room_name,
+              r.floor,
+              r.building,
+              ul.x_pos,
+              ul.z_pos,
+              ul.last_seen
        FROM user_locations ul
        JOIN rooms r ON ul.room_id = r.id
        ORDER BY ul.last_seen DESC`
@@ -264,11 +216,71 @@ router.get("/api/all-locations", async (req, res) => {
     });
 
   } catch (err) {
-    console.error("DB ERROR:", err.message);
-    return res.status(500).json({
-      success: false,
-      message: "Internal server error"
-    });
+    console.error("DB ERROR /api/all-locations:", err.message);
+    return res.status(500).json({ success: false, message: "Internal server error" });
   }
 });
+
+/* ==================================================
+   GET: All Rooms
+================================================== */
+router.get("/api/rooms", async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT id, room_name, floor, building
+       FROM rooms
+       ORDER BY room_name`
+    );
+    return res.json({ success: true, rooms: result.rows });
+  } catch (err) {
+    console.error("DB ERROR /api/rooms:", err.message);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+});
+
+/* ==================================================
+   POST: Update User x/z Position
+   FIX: Check rowCount so we return 404 for unknown users.
+   FIX: Emit "position-update" socket event so the map
+        updates in real time without waiting for a poll.
+================================================== */
+router.post("/api/update-position", async (req, res) => {
+  const { user_id, x_pos, z_pos } = req.body;
+
+  if (!user_id) {
+    return res.status(400).json({ success: false, message: "user_id is required" });
+  }
+
+  try {
+    const result = await pool.query(
+      `UPDATE user_locations
+       SET x_pos = $1, z_pos = $2, last_seen = NOW()
+       WHERE user_id = $3`,
+      [x_pos || 0, z_pos || 0, user_id]
+    );
+
+    /* No row updated = user_id not in user_locations yet */
+    if (result.rowCount === 0) {
+      return res.status(404).json({ success: false, message: "User not found — call update-location first" });
+    }
+
+    /* Emit real-time position update */
+    const io = req.app.get("io");
+    if (io) {
+      io.emit("position-update", {
+        user_id,
+        x_pos: x_pos || 0,
+        z_pos: z_pos || 0,
+        last_seen: new Date().toISOString(),
+      });
+    }
+
+    return res.json({ success: true });
+
+  } catch (err) {
+    console.error("DB ERROR /api/update-position:", err.message);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+});
+
 export default router;
