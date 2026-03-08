@@ -46,6 +46,28 @@ ON user_locations(room_id);
 CREATE INDEX idx_user_locations_last_seen
 ON user_locations(last_seen DESC);
 
+/* ── History log: one row per user-enters-room event ── */
+CREATE TABLE IF NOT EXISTS location_history (
+    id          SERIAL PRIMARY KEY,
+    user_id     VARCHAR(100) NOT NULL,
+    room_id     INT NOT NULL,
+    entered_at  TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT fk_lh_room FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
+);
+CREATE INDEX idx_lh_room_id    ON location_history(room_id);
+CREATE INDEX idx_lh_entered_at ON location_history(entered_at DESC);
+CREATE INDEX idx_lh_user_id    ON location_history(user_id);
+
+/* ── Room status tags (exam, cleaning, reserved, closed) ── */
+CREATE TABLE IF NOT EXISTS room_reservations (
+    id         SERIAL PRIMARY KEY,
+    room_name  VARCHAR(50) NOT NULL UNIQUE,
+    tag        VARCHAR(20) NOT NULL,
+    label      VARCHAR(100) NOT NULL,
+    set_by     VARCHAR(100),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- =====================================================
 -- Migration: Fix timezone-naive TIMESTAMP columns
 -- Run this ONCE on your existing database.
