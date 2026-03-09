@@ -1,28 +1,9 @@
 /**
  * File: apk.routes.js
  *
- * Overview:
- * --------------------------------------------------
- * Defines routes responsible for displaying
- * application details and serving the Android APK
- * file for download.
- *
- * Responsibilities:
- * - Render the application landing/details page
- * - Provide a secure endpoint to download the APK
- *
- * Typical Flow:
- * - User opens app landing page
- * - User clicks "Download APK"
- * - Server sends the APK file to the client
- *
- * Routes:
- * --------------------------------------------------
- * GET  /display
- *      → Renders application details page
- *
- * GET  /download-apk
- *      → Downloads Android APK file
+ * Routes responsible for:
+ * - Rendering the APK download page
+ * - Serving Android APK files
  */
 
 import express from "express";
@@ -33,57 +14,55 @@ const router = express.Router();
 
 /* ==================================================
    ES Module Path Resolution
-   ==================================================
-   Purpose:
-   - __dirname and __filename are not available
-     natively in ES Modules.
-   - The following logic recreates them safely.
-*/
+   ================================================== */
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 /* ==================================================
-   GET: Render App Details Page
-   ==================================================
-   Purpose:
-   - Serves the application landing/details page
-   - Typically contains app description and
-     download button for the APK
-*/
+   GET: Display App Page
+   ================================================== */
+
 router.get("/display", (req, res) => {
   res.render("app-details");
 });
 
 /* ==================================================
-   GET: Download APK File
-   ==================================================
-   Purpose:
-   - Sends the Android APK file to the client
-   - Forces browser download using res.download()
-   - Handles missing file or server errors
-*/
-router.get("/download-apk", (req, res) => {
+   GET: Download APK Version 1
+   ================================================== */
 
-  /* Construct absolute path to APK file */
+router.get("/download-apk-v1", (req, res) => {
+
   const apkPath = path.join(
     __dirname,
     "../public/apk/IndoorLocalization.apk"
   );
 
-  /* Trigger APK download */
   res.download(apkPath, "IndoorLocalization.apk", (err) => {
-
-    /* Handle file access or path errors */
     if (err) {
-      console.error("APK download error:", err);
-      res.status(500).send("File not found");
+      console.error("APK V1 download error:", err);
+      res.status(500).send("Unable to download APK V1");
     }
   });
 });
 
 /* ==================================================
-   Export Router
-   ==================================================
-   Makes routes available to the main application
-*/
+   GET: Download APK Version 2
+   ================================================== */
+
+router.get("/download-apk-v2", (req, res) => {
+
+  const apkPath = path.join(
+    __dirname,
+    "../public/apk/localization_2.apk"
+  );
+
+  res.download(apkPath, "localization_2.apk", (err) => {
+    if (err) {
+      console.error("APK V2 download error:", err);
+      res.status(500).send("Unable to download APK V2");
+    }
+  });
+});
+
 export default router;
