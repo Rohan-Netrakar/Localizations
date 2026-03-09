@@ -370,4 +370,140 @@ router.delete("/api/room-reservation/:roomName", async (req, res) => {
   }
 });
 
+
+/**
+ * NEW ADMIN ROUTES — paste these into bssid_routes.js before "export default router;"
+ *
+ * GET  /api/admin/all-mappings   → All BSSID→Room pairs (for admin app list)
+ * PUT  /api/admin/remap-bssid    → Change room for an existing BSSID
+ * POST /api/admin/delete-bssid   → Delete a BSSID mapping (POST avoids URL-encoding colons)
+ */
+
+/* ==================================================
+   GET: All BSSID → Room mappings
+   Used by admin app "View All Registered Rooms" screen.
+================================================== */
+router.get("/api/admin/all-mappings", async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT rb.id,
+              rb.bssid,
+              rb.band,
+              rb.ssid_name,
+              rb.created_at,
+              r.room_name,
+              r.floor,
+              r.building
+       FROM room_bssids rb
+       JOIN rooms r ON rb.room_id = r.id
+       ORDER BY r.room_name ASC, rb.bssid ASC`
+    );
+    return res.json({
+      success: true,
+      count: result.rows.length,
+      mappings: result.rows
+    });
+  } catch (err) {
+    console.error("DB ERROR GET /api/admin/all-mappings:", err.message);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+});
+
+/* ==================================================
+   PUT: Remap a BSSID to a different room
+   Body: { bssid, new_room_name }
+   - Creates the new room if it doesn't exist
+   - Updates room_bssids.room_id to point to new room
+================================================== */
+router.put("/api/admin/remap-bssid", async (req, res) => {
+  const { bssid, new_room_name } = req.body;
+
+  if (!bssid || !new_room_name) {
+    return res.status(400).json({
+      success: false,
+      message: "bssid and new_room_name are required"
+    });
+  }
+
+  try {
+    /* Upsert the target room */
+    let roomId;
+    const upsert = await pool.query(
+      `INSERT INTO rooms (room_name)
+       VALUES ($1)
+       ON CONFLICT (room_name) DO NOTHING
+       RETURNING id`,
+      [new_room_name]
+    );
+
+    if (upsert.rows.length > 0) {
+      roomId = upsert.rows[0].id;
+    } else {
+      const existing = await pool.query(
+        "SELECT id FROM rooms WHERE room_name = $1",
+        [new_room_name]
+      );
+      if (existing.rows.length === 0) {
+        return res.status(404).json({ success: false, message: "Room not found after upsert" });
+      }
+      roomId = existing.rows[0].id;
+    }
+
+    /* Update the BSSID to point to the new room */
+    const update = await pool.query(
+      `UPDATE room_bssids SET room_id = $1 WHERE bssid = $2`,
+      [roomId, bssid]
+    );
+
+    if (update.rowCount === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "BSSID not found in database"
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: `BSSID remapped to ${new_room_name}`
+    });
+
+  } catch (err) {
+    console.error("DB ERROR PUT /api/admin/remap-bssid:", err.message);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+});
+
+/* ==================================================
+   POST: Delete a BSSID mapping
+   Body: { bssid }
+   Using POST (not DELETE) to avoid URL-encoding MAC address colons.
+================================================== */
+router.post("/api/admin/delete-bssid", async (req, res) => {
+  const { bssid } = req.body;
+
+  if (!bssid) {
+    return res.status(400).json({ success: false, message: "bssid is required" });
+  }
+
+  try {
+    const result = await pool.query(
+      `DELETE FROM room_bssids WHERE bssid = $1`,
+      [bssid]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "BSSID not found in database"
+      });
+    }
+
+    return res.json({ success: true, message: "BSSID mapping deleted successfully" });
+
+  } catch (err) {
+    console.error("DB ERROR POST /api/admin/delete-bssid:", err.message);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+});
+
 export default router;
